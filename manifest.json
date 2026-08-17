@@ -1,0 +1,3 @@
+{
+  "name":"Compasso — Gestão de aulas","short_name":"Compasso","lang":"pt-BR","start_url":"index.html","display":"standalone","background_color":"#f6f7f3","theme_color":"#173d39","description":"Agenda, alunos, pagamentos e repertório em um só lugar.","icons":[{"src":"icons/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
