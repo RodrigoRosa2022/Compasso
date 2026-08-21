@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.vercel.compasso_beta_ruby.twa",
+      "sha256_cert_fingerprints": [
+        "7B:63:0C:88:EF:59:3F:18:40:14:F1:06:52:0F:02:9C:43:51:22:D2:27:10:C7:6F:5B:C1:44:D4:E0:3B:6E:6C"
+      ]
+    }
+  }
+]
