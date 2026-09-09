@@ -50,8 +50,10 @@ function inferPaymentDate(payment){
   return '';
 }
 
+function hasReceipt(record){return record.status==='paid'||!!record.confirmedAt||(record.history||[]).some(event=>event.type==='confirmed')}
+
 function runtimePayment(record){
-  return {id:record.key,alunoId:record.studentId,ref:record.reference||'',valor:reais(record.amountCents),pago:record.status==='paid',pagoEm:record.confirmedAt||undefined,notes:record.notes||'',dueDate:record.dueDate||'',autoKey:record.key,kind:record.kind||'manual',history:clone(record.history||[]),_persisted:true,_excluded:record.status==='excluded',exclusionReason:record.exclusionReason||''};
+  return {id:record.key,alunoId:record.studentId,studentName:record.studentName||'',ref:record.reference||'',valor:reais(record.amountCents),pago:record.status==='paid',pagoEm:record.confirmedAt||undefined,notes:record.notes||'',dueDate:record.dueDate||'',autoKey:record.key,kind:record.kind||'manual',history:clone(record.history||[]),_persisted:true,_excluded:record.status==='excluded',exclusionReason:record.exclusionReason||''};
 }
 
 function classIdFor(schedule,date){return `class:${schedule.id}:${date}`}
@@ -88,8 +90,9 @@ function fromLegacy(legacy){
     if(kind==='monthly'){const month=(payment.autoKey?.match(/(\d{4}-\d{2})$/)||[])[1]||dueDate.slice(0,7);key=monthlyPaymentKey(studentId,month)}
     else if(kind==='per_class'){const match=payment.autoKey?.match(/-class-(\d{4}-\d{2}-\d{2})-(\d+)$/),date=match?.[1]||dueDate,dateObject=date?dateAtNoon(date):null,schedule=match?slots[Number(match[2])]:slots.find(item=>dateObject&&dateObject.getDay()===((['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'].indexOf(item.weekday)+1)%7));key=schedule&&date?classPaymentKey(studentId,schedule.id,date):`payment:legacy:${payment.id}`}
     else key=`payment:manual:${payment.id||newId('manual')}`;
+    if(String(payment.autoKey||'').startsWith('payment:')){key=String(payment.autoKey);kind=payment.kind||kind}
     const status=payment.pago?'paid':'pending',history=clone(payment.history||[]);if(status==='paid'&&!history.some(event=>event.type==='confirmed'))history.push({type:'confirmed',at:payment.pagoEm||null});
-    return {key,studentId,dueDate,kind,status,amountCents:cents(payment.valor),reference:payment.ref||'',confirmedAt:payment.pagoEm||null,notes:payment.notes||'',history,manual:kind==='manual'};
+    return {key,studentId,studentName:payment.studentName||legacyStudent?.nome||'Aluno removido',dueDate,kind,status,amountCents:cents(payment.valor),reference:payment.ref||'',confirmedAt:payment.pagoEm||null,notes:payment.notes||'',history,manual:kind==='manual'};
   });
 
   return normalizeCanonical({schemaVersion:SCHEMA_VERSION,students,classSchedules,billingRules,books,studentBooks,repertoire,studentRepertoire,paymentRecords,classOverrides,settings:source.settings||{teacherName:'',schoolName:''},meta:{migratedAt:new Date().toISOString(),demoEligible:source.demoEligible===true,demoKurtSeyit:source.demoKurtSeyit===true,dataErased:source.dataErased===true,academicLinksVersion:source.academicLinksVersion||1}});
@@ -134,7 +137,15 @@ function sync(runtime){
   });
 
   const existingPayments=new Map(previous.paymentRecords.map(record=>[record.key,record]));
-  const paymentRecords=(runtime.pagamentos||[]).filter(payment=>payment._persisted||payment.pago||payment.pagoEm||payment.notes||payment.history?.length||!payment.autoKey).map(payment=>{const key=String(payment.autoKey||payment.id||newId('payment-manual')),old=existingPayments.get(key)||{},dueDate=inferPaymentDate(payment);return {...old,key,studentId:payment.alunoId,dueDate,kind:payment.kind||old.kind||(key.includes(':monthly:')?'monthly':key.includes(':class:')?'per_class':'manual'),status:payment._excluded?'excluded':payment.pago?'paid':'pending',amountCents:cents(payment.valor),reference:payment.ref||old.reference||'',confirmedAt:payment.pagoEm||null,notes:payment.notes||'',history:clone(payment.history||old.history||[]),manual:payment.kind==='manual'||old.manual===true,exclusionReason:payment.exclusionReason||old.exclusionReason||''}});
+  const paymentRecords=(runtime.pagamentos||[]).filter(payment=>payment._persisted||payment.pago||payment.pagoEm||payment.notes||payment.history?.length||!payment.autoKey).map(payment=>{const key=String(payment.autoKey||payment.id||newId('payment-manual')),old=existingPayments.get(key)||{},dueDate=inferPaymentDate(payment);return {...old,key,studentId:payment.alunoId,studentName:old.studentName||payment.studentName||students.find(student=>String(student.id)===String(payment.alunoId))?.name||previous.students.find(student=>String(student.id)===String(payment.alunoId))?.name||'Aluno removido',dueDate,kind:payment.kind||old.kind||(key.includes(':monthly:')?'monthly':key.includes(':class:')?'per_class':'manual'),status:payment._excluded?'excluded':payment.pago?'paid':'pending',amountCents:cents(payment.valor),reference:payment.ref||old.reference||'',confirmedAt:payment.pagoEm||null,notes:payment.notes||'',history:clone(payment.history||old.history||[]),manual:payment.kind==='manual'||old.manual===true,exclusionReason:payment.exclusionReason||old.exclusionReason||''}});
+  // Receipts are independent of student lifecycle. Keep them even if a caller removes
+  // the student or filters its payments. Explicit cancellation keeps its audit events.
+  previous.paymentRecords.filter(hasReceipt).forEach(old=>{
+    const index=paymentRecords.findIndex(record=>record.key===old.key);
+    const retained={...old,studentName:old.studentName||previous.students.find(student=>String(student.id)===String(old.studentId))?.name||'Aluno removido'};
+    if(index<0)paymentRecords.push(retained);
+    else if(paymentRecords[index].status==='excluded')paymentRecords[index]=retained;
+  });
   const classOverrides=(runtime.classRecords||[]).filter(record=>record.status&&record.status!=='pending'||record.notes||record.rescheduled||record.rescheduledTo||record.originId).map(record=>clone(record));
   const canonical=normalizeCanonical({schemaVersion:SCHEMA_VERSION,students,classSchedules,billingRules,books,studentBooks,repertoire,studentRepertoire,paymentRecords,classOverrides,settings:runtime.settings||previous.settings,meta:{...previous.meta,demoEligible:runtime.demoEligible===true,demoKurtSeyit:runtime.demoKurtSeyit===true,dataErased:runtime.dataErased===true,academicLinksVersion:2,updatedAt:new Date().toISOString()}});
   attachCanonical(runtime,canonical);runtime.classRecords=clone(classOverrides);return canonical;
@@ -153,7 +164,7 @@ function projectPayments(runtime,date,days){
     if(monthlyRule){const dueDate=maxDate(activeFrom,monthlyRule.validFrom),key=monthlyPaymentKey(student.id,monthKey),record=records.get(key);seen.add(key);if(record?.status!=='excluded'){const projection={id:key,autoKey:key,alunoId:student.id,ref:record?.reference||monthlyReference,valor:record?reais(record.amountCents):reais(monthlyRule.amountCents),pago:record?.status==='paid',pagoEm:record?.confirmedAt||undefined,notes:record?.notes||'',dueDate,kind:'monthly',history:clone(record?.history||[]),_persisted:!!record,_virtual:!record};result.push(projection)}}
     runtime.classSchedules.filter(schedule=>String(schedule.studentId)===String(student.id)).forEach(schedule=>{for(let day=1;day<=lastDay;day++){const current=new Date(year,date.getMonth(),day),dateKey=`${monthKey}-${String(day).padStart(2,'0')}`,wanted=(days.indexOf(schedule.weekday)+1)%7;if(current.getDay()!==wanted||!studentActiveOn(student,dateKey)||!scheduleActiveOn(schedule,dateKey))continue;const rule=billingRuleAt(runtime,student.id,dateKey);if(!rule||rule.type!=='per_class')continue;const key=classPaymentKey(student.id,schedule.id,dateKey),record=records.get(key),reference=`Aula ${String(day).padStart(2,'0')}/${month}`;seen.add(key);if(record?.status==='excluded')continue;result.push({id:key,autoKey:key,alunoId:student.id,ref:record?.reference||reference,valor:record?reais(record.amountCents):reais(rule.amountCents),pago:record?.status==='paid',pagoEm:record?.confirmedAt||undefined,notes:record?.notes||'',dueDate:dateKey,kind:'per_class',history:clone(record?.history||[]),_persisted:!!record,_virtual:!record})}})
   });
-  runtime.paymentRecords.filter(record=>{const student=runtime.students.find(item=>String(item.id)===String(record.studentId));return record.status!=='excluded'&&record.dueDate?.startsWith(monthKey)&&!seen.has(record.key)&&student&&studentActiveOn(student,record.dueDate)}).forEach(record=>result.push(runtimePayment(record)));
+  runtime.paymentRecords.filter(record=>{const student=runtime.students.find(item=>String(item.id)===String(record.studentId));return record.status!=='excluded'&&record.dueDate?.startsWith(monthKey)&&!seen.has(record.key)&&(hasReceipt(record)||(student&&studentActiveOn(student,record.dueDate)))}).forEach(record=>result.push(runtimePayment(record)));
   return result.sort((a,b)=>`${a.dueDate}${a.alunoId}`.localeCompare(`${b.dueDate}${b.alunoId}`));
 }
 
