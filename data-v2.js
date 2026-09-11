@@ -40,6 +40,18 @@ function normalizeCanonical(raw){
   };
 }
 
+function enrollmentPeriods(student){
+  return student.enrollmentPeriods?.length?student.enrollmentPeriods:[{startDate:student.startDate,endDate:student.endDate||null}];
+}
+
+function syncEnrollment(student,old,now){
+  const periods=clone(student.enrollmentPeriods?.length?student.enrollmentPeriods:enrollmentPeriods(old.startDate?old:{startDate:student.desde,endDate:student.encerradoEm}));
+  if(periods.length&&student.desde!==old.startDate)periods[0].startDate=student.desde;
+  if(student.ativo===false&&student.encerradoEm){const open=periods.findLast(p=>!p.endDate);if(open)open.endDate=student.encerradoEm;}
+  if(student.ativo!==false&&periods.length&&periods.every(p=>p.endDate))periods.push({startDate:now,endDate:null});
+  student.enrollmentPeriods=periods;return periods;
+}
+
 function inferPaymentDate(payment){
   if(iso(payment.dueDate))return payment.dueDate;
   const reference=String(payment.ref||payment.reference||'');
@@ -121,13 +133,43 @@ function sync(runtime){
   const oldRepertoire=new Map(previous.repertoire.map(item=>[item.id,item])),oldRepertoireByName=new Map(previous.repertoire.map(item=>[norm(item.title),item]));
   const repertoire=(runtime.repertorio||[]).filter(item=>String(item.nome||'').trim()).map(item=>{const old=oldRepertoire.get(item.id)||oldRepertoireByName.get(norm(item.nome)),mapped={id:old?.id||newId('repertoire'),title:item.nome,author:item.autor||'',comments:item.comentarios||'',photo:item.foto};item.id=mapped.id;return mapped});
   const bookByName=new Map(books.map(item=>[norm(item.title),item])),repertoireByName=new Map(repertoire.map(item=>[norm(item.title),item]));
-  const students=(runtime.alunos||[]).map((student,index)=>{const old=previous.students.find(item=>String(item.id)===String(student.id))||{};return {...old,id:student.id??newId('student'),name:student.nome||'',initials:student.ini||'',color:student.cor||'',startDate:iso(student.desde)||now,endDate:iso(student.encerradoEm)||null,active:student.ativo!==false,birthDate:iso(student.nascimento)||'',contact:student.contato||'',notes:student.notas||'',photo:student.foto}});
+  const students=(runtime.alunos||[]).map((student,index)=>{const old=previous.students.find(item=>String(item.id)===String(student.id))||{};return {...old,id:student.id??newId('student'),name:student.nome||'',initials:student.ini||'',color:student.cor||'',startDate:iso(student.desde)||now,endDate:iso(student.encerradoEm)||null,active:student.ativo!==false,enrollmentPeriods:syncEnrollment(student,old,now),birthDate:iso(student.nascimento)||'',contact:student.contato||'',notes:student.notas||'',photo:student.foto}});
 
   const classSchedules=previous.classSchedules.filter(schedule=>schedule.validTo),usedSchedules=new Set();
-  (runtime.alunos||[]).forEach(student=>{const oldActive=previous.classSchedules.filter(schedule=>String(schedule.studentId)===String(student.id)&&!schedule.validTo),start=iso(student.desde)||now;(student.aulas||[]).forEach((slot,index)=>{const validFrom=maxDate(start,iso(slot.criadoEm)||start);let match=oldActive.find(schedule=>!usedSchedules.has(schedule.id)&&(slot.id===schedule.id||(schedule.weekday===slot.dia&&schedule.time===slot.hora&&schedule.validFrom===validFrom)));if(match){usedSchedules.add(match.id);slot.id=match.id;classSchedules.push({...match,weekday:slot.dia,time:slot.hora,duration:Number(slot.duracao)||50})}else{const created={id:newId('schedule'),studentId:student.id,weekday:slot.dia,time:slot.hora,duration:Number(slot.duracao)||50,validFrom,validTo:null};slot.id=created.id;classSchedules.push(created)}});oldActive.filter(schedule=>!usedSchedules.has(schedule.id)&&schedule.validFrom<now).forEach(schedule=>classSchedules.push({...schedule,validTo:dayBefore(now)}))});
+  (runtime.alunos||[]).forEach(student=>{
+    const oldActive=previous.classSchedules.filter(schedule=>String(schedule.studentId)===String(student.id)&&!schedule.validTo);
+    if(student.ativo===false&&!oldActive.length)return;
+    const start=iso(student.desde)||now,effective=maxDate(start,iso(student._scheduleEffectiveDate)||now);
+    const close=schedule=>{
+      const seriesId=schedule.seriesId||schedule.id;
+      for(let index=classSchedules.length-1;index>=0;index--){
+        const old=classSchedules[index];
+        if((old.seriesId||old.id)!==seriesId||old.validTo<effective)continue;
+        if(old.validFrom<effective)classSchedules[index]={...old,validTo:dayBefore(effective)};
+        else classSchedules.splice(index,1);
+      }
+      if(schedule.validFrom<effective)classSchedules.push({...schedule,seriesId,validTo:dayBefore(effective)});
+    };
+    (student.aulas||[]).forEach(slot=>{
+      const duration=Number(slot.duracao)||50;
+      const match=oldActive.find(schedule=>!usedSchedules.has(schedule.id)&&(slot.id===schedule.id||(!slot.id&&schedule.weekday===slot.dia&&schedule.time===slot.hora)));
+      if(match)usedSchedules.add(match.id);
+      if(match&&match.weekday===slot.dia&&match.time===slot.hora&&Number(match.duration)===duration){
+        slot.id=match.id;slot.criadoEm=match.validFrom;classSchedules.push(match);
+      }else{
+        if(match)close(match);
+        const hasHistory=previous.classSchedules.some(schedule=>String(schedule.studentId)===String(student.id));
+        const validFrom=match||hasHistory?effective:maxDate(start,iso(slot.criadoEm)||start);
+        const created={id:newId('schedule'),...(match?{seriesId:match.seriesId||match.id}:{}),studentId:student.id,weekday:slot.dia,time:slot.hora,duration,validFrom,validTo:null};
+        slot.id=created.id;slot.criadoEm=validFrom;classSchedules.push(created);
+      }
+    });
+    oldActive.filter(schedule=>!usedSchedules.has(schedule.id)).forEach(close);
+    delete student._scheduleEffectiveDate;
+  });
 
   const billingRules=previous.billingRules.filter(rule=>rule.validTo),usedRules=new Set();
-  (runtime.alunos||[]).forEach(student=>{const active=previous.billingRules.filter(rule=>String(rule.studentId)===String(student.id)&&!rule.validTo).sort((a,b)=>b.validFrom.localeCompare(a.validFrom))[0],type=planToCode(student.plano),amountCents=cents(student.valor),start=iso(student.desde)||now;if(active&&active.type===type&&Number(active.amountCents)===amountCents){usedRules.add(active.id);billingRules.push(active)}else{if(active){usedRules.add(active.id);billingRules.push({...active,validTo:dayBefore(maxDate(now,start))})}billingRules.push({id:newId('billing'),studentId:student.id,type,amountCents,validFrom:maxDate(start,now),validTo:null})}});
+  (runtime.alunos||[]).forEach(student=>{const active=previous.billingRules.filter(rule=>String(rule.studentId)===String(student.id)&&!rule.validTo).sort((a,b)=>b.validFrom.localeCompare(a.validFrom))[0],type=planToCode(student.plano),amountCents=cents(student.valor),start=iso(student.desde)||now;if(active&&active.type===type&&Number(active.amountCents)===amountCents){usedRules.add(active.id);billingRules.push(active)}else{if(active){usedRules.add(active.id);if(active.validFrom<maxDate(now,start))billingRules.push({...active,validTo:dayBefore(maxDate(now,start))})}billingRules.push({id:newId('billing'),studentId:student.id,type,amountCents,validFrom:maxDate(start,now),validTo:null})}});
 
   const oldBookLinks=new Map(previous.studentBooks.map(link=>[link.id,link])),oldMusicLinks=new Map(previous.studentRepertoire.map(link=>[link.id,link]));
   const studentBooks=[],studentRepertoire=[];
@@ -152,16 +194,93 @@ function sync(runtime){
 }
 
 function canonicalOnly(runtime){const canonical=sync(runtime);return clone(canonical)}
-function studentActiveOn(student,date){return (!student.startDate||date>=student.startDate)&&(!student.endDate||date<=student.endDate)}
+function validateCanonical(raw){
+  const fail=message=>{throw new Error('Backup inválido: '+message)};
+  const object=value=>value&&typeof value==='object'&&!Array.isArray(value);
+  const id=value=>(typeof value==='number'&&Number.isSafeInteger(value)&&value>=0)||(typeof value==='string'&&/^[A-Za-z0-9:_-]+$/.test(value));
+  const date=(value,label,optional=false)=>{
+    if(optional&&(value===undefined||value===null||value===''))return;
+    if(typeof value!=='string'||!iso(value)){fail(label+' deve conter uma data válida.');}
+    const parsed=dateAtNoon(value);
+    if(Number.isNaN(parsed.getTime())||parsed.getFullYear()!==Number(value.slice(0,4))||parsed.getMonth()+1!==Number(value.slice(5,7))||parsed.getDate()!==Number(value.slice(8)))fail(label+' contém uma data inexistente.');
+  };
+  const range=(start,end,label)=>{date(start,label);date(end,label,true);if(end&&end<start)fail(label+': a data final é anterior à inicial.')};
+  const text=(value,label,required=false)=>{if((required&&(typeof value!=='string'||!value.trim()))||(value!==undefined&&value!==null&&typeof value!=='string'))fail(label+' deve conter texto.')};
+  const collections=['students','classSchedules','billingRules','books','studentBooks','repertoire','studentRepertoire','paymentRecords','classOverrides'];
+  if(!object(raw)||raw.schemaVersion!==2)fail('estrutura de dados não reconhecida.');
+  const maps={};
+  for(const collection of collections){
+    if(!Array.isArray(raw[collection]))fail('coleção '+collection+' ausente.');
+    maps[collection]=new Map();
+    for(const item of raw[collection]){
+      if(!object(item))fail('registro danificado em '+collection+'.');
+      const key=collection==='paymentRecords'?item.key:item.id;
+      if(!id(key))fail('identificador inválido em '+collection+'.');
+      if(maps[collection].has(String(key)))fail('identificador repetido em '+collection+'.');
+      maps[collection].set(String(key),item);
+    }
+  }
+  const reference=(collection,value,label)=>{if(!id(value)||!maps[collection].has(String(value)))fail(label+' aponta para um registro inexistente.')};
+  if(raw.settings!==undefined&&!object(raw.settings))fail('perfil danificado.');
+  if(raw.meta!==undefined&&!object(raw.meta))fail('metadados danificados.');
+  for(const s of raw.students){
+    text(s.name,'Nome do aluno',true);range(s.startDate,s.endDate,'Período do aluno');date(s.birthDate,'Nascimento',true);
+    if(typeof s.active!=='boolean')fail('situação do aluno inválida.');
+    for(const key of ['initials','color','contact','notes'])text(s[key],key);
+    if(s.enrollmentPeriods!==undefined){
+      if(!Array.isArray(s.enrollmentPeriods)||!s.enrollmentPeriods.length)fail('períodos de matrícula inválidos.');
+      let previous=null;
+      for(const p of s.enrollmentPeriods){
+        if(!object(p))fail('período de matrícula danificado.');range(p.startDate,p.endDate,'Matrícula');
+        if(p.startDate<s.startDate||(previous&&(!previous.endDate||p.startDate<=previous.endDate)))fail('períodos de matrícula sobrepostos ou fora da data inicial.');
+        previous=p;
+      }
+    }
+  }
+  const time=(value,label)=>{if(typeof value!=='string'||!/^([01]\d|2[0-3]):[0-5]\d$/.test(value))fail(label+' tem horário inválido.')};
+  const duration=value=>{if(!Number.isFinite(value)||value<10||value>240)fail('duração da aula inválida.')};
+  const weekdays=['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
+  for(const s of raw.classSchedules){reference('students',s.studentId,'Horário');range(s.validFrom,s.validTo,'Vigência do horário');if(!weekdays.includes(s.weekday))fail('dia da semana inválido.');time(s.time,'Horário');duration(s.duration)}
+  const amount=value=>{if(!Number.isSafeInteger(value)||value<0)fail('valor monetário inválido.')};
+  for(const r of raw.billingRules){reference('students',r.studentId,'Plano');range(r.validFrom,r.validTo,'Vigência do plano');if(!['monthly','per_class'].includes(r.type))fail('tipo de plano inválido.');amount(r.amountCents)}
+  for(const name of ['books','repertoire'])for(const item of raw[name]){text(item.title,'Título',true);text(item.author,'Autor');text(item.comments,'Comentários')}
+  for(const link of raw.studentBooks){reference('students',link.studentId,'Livro do aluno');reference('books',link.bookId,'Livro do aluno');range(link.startedAt,link.completedAt,'Histórico do livro')}
+  for(const link of raw.studentRepertoire){
+    reference('students',link.studentId,'Repertório do aluno');reference('repertoire',link.repertoireId,'Repertório do aluno');range(link.startedAt,link.completedAt,'Histórico do repertório');
+    if(!Array.isArray(link.statusEvents)||!link.statusEvents.length)fail('etapas do repertório ausentes.');
+    let previous=link.startedAt;
+    for(const event of link.statusEvents){if(!object(event)||!['waiting','learning','performing'].includes(event.status))fail('etapa de repertório inválida.');date(event.date,'Data da etapa');if(event.date<previous||(link.completedAt&&event.date>link.completedAt))fail('datas das etapas fora de ordem.');previous=event.date}
+  }
+  for(const p of raw.paymentRecords){
+    if(!id(p.studentId))fail('aluno do pagamento inválido.');
+    if(!maps.students.has(String(p.studentId))&&!(hasReceipt(p)&&typeof p.studentName==='string'&&p.studentName.trim()))fail('pagamento sem aluno ou identificação histórica.');
+    date(p.dueDate,'Data do pagamento');amount(p.amountCents);text(p.reference,'Referência');text(p.notes,'Comentário');text(p.studentName,'Nome histórico');
+    if(!['monthly','per_class','manual'].includes(p.kind)||!['paid','pending','excluded'].includes(p.status))fail('situação de pagamento inválida.');
+    if(p.confirmedAt&&Number.isNaN(Date.parse(p.confirmedAt)))fail('data de confirmação inválida.');
+    if(p.history!==undefined&&(!Array.isArray(p.history)||p.history.some(e=>!object(e)||typeof e.type!=='string'||(e.at&&Number.isNaN(Date.parse(e.at))))))fail('histórico de pagamento danificado.');
+  }
+  for(const c of raw.classOverrides){
+    reference('students',c.studentId,'Aula');date(c.date,'Data da aula');time(c.time,'Aula');duration(c.duration);text(c.notes,'Comentário da aula');
+    if(!['pending','held','teacher_cancel','student_cancel','no_show'].includes(c.status))fail('situação da aula inválida.');
+    if(c.scheduleId!==undefined){reference('classSchedules',c.scheduleId,'Aula');if(String(maps.classSchedules.get(String(c.scheduleId)).studentId)!==String(c.studentId))fail('aula vinculada ao horário de outro aluno.')}
+    if(c.day!==undefined&&!weekdays.includes(c.day))fail('dia da aula inválido.');
+    if(c.rescheduledTo){date(c.rescheduledTo.date,'Reposição');time(c.rescheduledTo.time,'Reposição')}
+    if(c.originId!==undefined){reference('classOverrides',c.originId,'Reposição');if(c.originId===c.id||String(maps.classOverrides.get(String(c.originId)).studentId)!==String(c.studentId))fail('origem da reposição inválida.')}
+  }
+  return raw;
+}
+function studentActiveOn(student,date){return (!student.startDate||date>=student.startDate)&&enrollmentPeriods(student).some(period=>(!period.startDate||date>=period.startDate)&&(!period.endDate||date<=period.endDate))}
 function scheduleActiveOn(schedule,date){return (!schedule.validFrom||date>=schedule.validFrom)&&(!schedule.validTo||date<=schedule.validTo)}
 function billingRuleAt(runtime,studentId,date){return runtime.billingRules.filter(rule=>String(rule.studentId)===String(studentId)&&(!rule.validFrom||date>=rule.validFrom)&&(!rule.validTo||date<=rule.validTo)).sort((a,b)=>b.validFrom.localeCompare(a.validFrom))[0]||null}
 
 function projectPayments(runtime,date,days){
   sync(runtime);const year=date.getFullYear(),month=String(date.getMonth()+1).padStart(2,'0'),monthKey=`${year}-${month}`,first=`${monthKey}-01`,lastDay=new Date(year,date.getMonth()+1,0).getDate(),last=`${monthKey}-${String(lastDay).padStart(2,'0')}`,records=new Map(runtime.paymentRecords.map(record=>[record.key,record])),result=[],seen=new Set(),monthName=date.toLocaleDateString('pt-BR',{month:'long'}),monthlyReference=`${monthName[0].toUpperCase()+monthName.slice(1)}/${year}`;
   runtime.students.forEach(student=>{
-    const activeFrom=maxDate(first,student.startDate),activeTo=minDate(last,student.endDate||last);if(!activeFrom||activeFrom>activeTo)return;
-    const monthlyRule=runtime.billingRules.filter(rule=>String(rule.studentId)===String(student.id)&&rule.type==='monthly'&&(!rule.validTo||rule.validTo>=activeFrom)&&(!rule.validFrom||rule.validFrom<=activeTo)).sort((a,b)=>a.validFrom.localeCompare(b.validFrom))[0];
-    if(monthlyRule){const dueDate=maxDate(activeFrom,monthlyRule.validFrom),key=monthlyPaymentKey(student.id,monthKey),record=records.get(key);seen.add(key);if(record?.status!=='excluded'){const projection={id:key,autoKey:key,alunoId:student.id,ref:record?.reference||monthlyReference,valor:record?reais(record.amountCents):reais(monthlyRule.amountCents),pago:record?.status==='paid',pagoEm:record?.confirmedAt||undefined,notes:record?.notes||'',dueDate,kind:'monthly',history:clone(record?.history||[]),_persisted:!!record,_virtual:!record};result.push(projection)}}
+    const periods=enrollmentPeriods(student).map(period=>({from:maxDate(first,student.startDate,period.startDate),to:minDate(last,period.endDate||last)})).filter(period=>period.from<=period.to);
+    if(!periods.length)return;
+    const activeFrom=periods[0].from,activeTo=periods.at(-1).to;
+    const monthlyRule=runtime.billingRules.filter(rule=>String(rule.studentId)===String(student.id)&&rule.type==='monthly'&&periods.some(period=>(!rule.validTo||rule.validTo>=period.from)&&(!rule.validFrom||rule.validFrom<=period.to))).sort((a,b)=>a.validFrom.localeCompare(b.validFrom))[0];
+    if(monthlyRule){const dueDate=maxDate(periods.find(period=>(!monthlyRule.validTo||monthlyRule.validTo>=period.from)&&(!monthlyRule.validFrom||monthlyRule.validFrom<=period.to)).from,monthlyRule.validFrom),key=monthlyPaymentKey(student.id,monthKey),record=records.get(key);seen.add(key);if(record?.status!=='excluded'){const projection={id:key,autoKey:key,alunoId:student.id,ref:record?.reference||monthlyReference,valor:record?reais(record.amountCents):reais(monthlyRule.amountCents),pago:record?.status==='paid',pagoEm:record?.confirmedAt||undefined,notes:record?.notes||'',dueDate,kind:'monthly',history:clone(record?.history||[]),_persisted:!!record,_virtual:!record};result.push(projection)}}
     runtime.classSchedules.filter(schedule=>String(schedule.studentId)===String(student.id)).forEach(schedule=>{for(let day=1;day<=lastDay;day++){const current=new Date(year,date.getMonth(),day),dateKey=`${monthKey}-${String(day).padStart(2,'0')}`,wanted=(days.indexOf(schedule.weekday)+1)%7;if(current.getDay()!==wanted||!studentActiveOn(student,dateKey)||!scheduleActiveOn(schedule,dateKey))continue;const rule=billingRuleAt(runtime,student.id,dateKey);if(!rule||rule.type!=='per_class')continue;const key=classPaymentKey(student.id,schedule.id,dateKey),record=records.get(key),reference=`Aula ${String(day).padStart(2,'0')}/${month}`;seen.add(key);if(record?.status==='excluded')continue;result.push({id:key,autoKey:key,alunoId:student.id,ref:record?.reference||reference,valor:record?reais(record.amountCents):reais(rule.amountCents),pago:record?.status==='paid',pagoEm:record?.confirmedAt||undefined,notes:record?.notes||'',dueDate:dateKey,kind:'per_class',history:clone(record?.history||[]),_persisted:!!record,_virtual:!record})}})
   });
   runtime.paymentRecords.filter(record=>{const student=runtime.students.find(item=>String(item.id)===String(record.studentId));return record.status!=='excluded'&&record.dueDate?.startsWith(monthKey)&&!seen.has(record.key)&&(hasReceipt(record)||(student&&studentActiveOn(student,record.dueDate)))}).forEach(record=>result.push(runtimePayment(record)));
@@ -170,10 +289,10 @@ function projectPayments(runtime,date,days){
 
 function projectClasses(runtime,from,to,days){
   sync(runtime);const overrides=new Map(runtime.classOverrides.map(record=>[String(record.id),record])),result=[],seen=new Set();
-  runtime.classSchedules.forEach(schedule=>{const student=runtime.students.find(item=>String(item.id)===String(schedule.studentId));if(!student)return;const start=maxDate(from,student.startDate,schedule.validFrom),end=minDate(to,student.endDate||to,schedule.validTo||to);if(!start||start>end)return;for(let cursor=dateAtNoon(start);cursor<=dateAtNoon(end);cursor.setDate(cursor.getDate()+1)){const date=`${cursor.getFullYear()}-${String(cursor.getMonth()+1).padStart(2,'0')}-${String(cursor.getDate()).padStart(2,'0')}`,wanted=(days.indexOf(schedule.weekday)+1)%7;if(cursor.getDay()!==wanted)continue;const id=classIdFor(schedule,date),override=overrides.get(id),record={id,studentId:schedule.studentId,scheduleId:schedule.id,date,time:schedule.time,duration:schedule.duration,status:'pending',day:schedule.weekday,...clone(override||{})};result.push(record);seen.add(id)}});
+  runtime.classSchedules.forEach(schedule=>{const student=runtime.students.find(item=>String(item.id)===String(schedule.studentId));if(!student)return;const start=maxDate(from,student.startDate,schedule.validFrom),end=minDate(to,student.endDate||to,schedule.validTo||to);if(!start||start>end)return;for(let cursor=dateAtNoon(start);cursor<=dateAtNoon(end);cursor.setDate(cursor.getDate()+1)){const date=`${cursor.getFullYear()}-${String(cursor.getMonth()+1).padStart(2,'0')}-${String(cursor.getDate()).padStart(2,'0')}`,wanted=(days.indexOf(schedule.weekday)+1)%7;if(cursor.getDay()!==wanted||!studentActiveOn(student,date))continue;const id=classIdFor(schedule,date),override=overrides.get(id),record={id,studentId:schedule.studentId,scheduleId:schedule.id,date,time:schedule.time,duration:schedule.duration,status:'pending',day:schedule.weekday,...clone(override||{})};result.push(record);seen.add(id)}});
   runtime.classOverrides.filter(record=>record.date>=from&&record.date<=to&&!seen.has(String(record.id))).forEach(record=>{const student=runtime.students.find(item=>String(item.id)===String(record.studentId));if(student&&studentActiveOn(student,record.date))result.push(clone(record))});
   return result.sort((a,b)=>`${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
 }
 
-global.CompassoDataV2={SCHEMA_VERSION,fromLegacy,hydrate,sync,canonicalOnly,projectPayments,projectClasses,runtimePayment,newId,classIdFor,monthlyPaymentKey,classPaymentKey,planToCode,planToLabel,stageToCode,stageToLabel,dayBefore};
+global.CompassoDataV2={SCHEMA_VERSION,fromLegacy,hydrate,sync,canonicalOnly,projectPayments,projectClasses,runtimePayment,newId,classIdFor,monthlyPaymentKey,classPaymentKey,planToCode,planToLabel,stageToCode,stageToLabel,dayBefore,enrollmentPeriods,studentActiveOn,validateCanonical};
 })(window);
