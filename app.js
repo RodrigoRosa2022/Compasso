@@ -1,6 +1,6 @@
 const STORAGE_KEY = 'compasso-static-v3';
 const OLD_STORAGE_KEY = 'compasso-static';
-const APP_VERSION = '1.1.18';
+const APP_VERSION = '1.1.19';
 const COLORS = ['#668981','#d47c63','#7973a5','#c0924e','#b36d83','#5683a0','#648c88'];
 const DAYS = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const STAGES = ['Em espera','Aprendendo','Executando'];
@@ -91,7 +91,7 @@ function render(){lastRenderedDate=todayISO();let body=ui.selectedClass?classDet
 
 function bind(){
   $$('[data-page]').forEach(el=>el.onclick=()=>{ui.page=el.dataset.page;ui.selectedStudent=null;ui.selectedItem=null;ui.selectedPayment=null;ui.selectedClass=null;ui.search='';render()});
-  $$('[data-profile-settings]').forEach(el=>el.addEventListener('click',openProfileSettings));
+  $$('[data-profile-settings]').forEach(el=>el.addEventListener('click',()=>openProfileSettings()));
   $$('[data-student]').forEach(el=>el.onclick=()=>{ui.selectedStudent=resolveStudentId(el.dataset.student);ui.selectedItem=null;ui.selectedClass=null;render()});
   $$('[data-day]').forEach(el=>el.onclick=()=>{ui.scheduleDay=el.dataset.day;render()});
   $$('[data-kind]').filter(el=>el.tagName==='BUTTON').forEach(el=>el.onclick=()=>{ui.libraryKind=el.dataset.kind;ui.search='';render()});
