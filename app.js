@@ -1,6 +1,6 @@
 const STORAGE_KEY = 'compasso-static-v3';
 const OLD_STORAGE_KEY = 'compasso-static';
-const APP_VERSION = '1.1.17';
+const APP_VERSION = '1.1.18';
 const COLORS = ['#668981','#d47c63','#7973a5','#c0924e','#b36d83','#5683a0','#648c88'];
 const DAYS = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const STAGES = ['Em espera','Aprendendo','Executando'];
@@ -665,3 +665,56 @@ function preservePaymentHistory(target,previous){
   records.forEach(payment=>retained.set(String(payment.autoKey||payment.id),payment));
   target.pagamentos=[...retained.values()];
 }
+
+// Private Google cloud copy (v1.1.18). Photos deliberately stay only on the device.
+window.CompassoCloudBackup=()=>createBackupDocument();
+const saveBeforeCloud=save;
+save=function(){
+  const saved=saveBeforeCloud();
+  if(saved)window.CompassoCloud?.sync?.(createBackupDocument());
+  return saved;
+};
+function cloudPanelMarkup(){
+  const cloud=window.CompassoCloud?.state;
+  if(!cloud)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Cópia na nuvem</b><p>Preparando proteção dos dados…</p></span></div></section>`;
+  if(!cloud.user)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Cópia na nuvem</b><p>${esc(cloud.status)}</p></span></div><button type="button" class="cloud-action" data-cloud-sign-in>Entrar com Google</button></section>`;
+  const account=cloud.user.displayName||cloud.user.email||'Conta Google';
+  if(!cloud.hasCloudCopy)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Cópia na nuvem</b><p>${esc(cloud.status)} · ${esc(account)}</p></span></div><button type="button" class="cloud-action" data-cloud-upload>Fazer primeira cópia</button><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
+  if(!cloud.syncEnabled)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Cópia na nuvem</b><p>${esc(cloud.status)} · ${esc(account)}</p></span></div><div class="cloud-actions"><button type="button" class="cloud-action" data-cloud-restore>Restaurar da nuvem</button><button type="button" class="cloud-secondary" data-cloud-upload>Usar dados deste aparelho</button></div><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
+  return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Dados protegidos na nuvem</b><p>${esc(cloud.status)} · ${esc(account)}</p></span></div><div class="cloud-actions"><button type="button" class="cloud-secondary" data-cloud-restore>Restaurar cópia</button><button type="button" class="cloud-secondary" data-cloud-upload>Salvar agora</button></div><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
+}
+function bindCloudPanel(){
+  const zone=$('[data-cloud-zone]');if(!zone)return;
+  const run=async(action)=>{try{await action()}catch(error){toast(error?.message||'Não foi possível concluir agora.')}};
+  $('[data-cloud-sign-in]',zone)?.addEventListener('click',()=>run(()=>window.CompassoCloud.signIn()));
+  $('[data-cloud-upload]',zone)?.addEventListener('click',()=>run(async()=>{await window.CompassoCloud.uploadCurrent();toast('Cópia salva na nuvem')}));
+  $('[data-cloud-sign-out]',zone)?.addEventListener('click',()=>run(async()=>{await window.CompassoCloud.signOut();toast('Conta desconectada')}));
+  $('[data-cloud-restore]',zone)?.addEventListener('click',()=>showActionDialog({title:'Restaurar dados da nuvem?',message:'Os cadastros deste aparelho serão substituídos pela cópia da sua conta Google. As fotos não fazem parte da nuvem.',actions:[{label:'Restaurar cópia',tone:'danger',run:()=>run(()=>window.CompassoCloud.restore())},{label:'Voltar',tone:'neutral'}]}));
+}
+const openProfileSettingsBeforeCloud=openProfileSettings;
+openProfileSettings=function(){
+  openProfileSettingsBeforeCloud();
+  const backup=$('.backup-zone');
+  if(!backup)return;
+  backup.insertAdjacentHTML('beforebegin',cloudPanelMarkup());
+  bindCloudPanel();
+};
+window.addEventListener('compasso-cloud-state',()=>{
+  const zone=$('[data-cloud-zone]');if(!zone)return;
+  zone.outerHTML=cloudPanelMarkup();bindCloudPanel();
+});
+window.addEventListener('compasso-cloud-restore',event=>{
+  const backup=event.detail;
+  try{
+    validateBackupDocument(backup);
+    const previous=structuredClone(data),photo=data.settings?.foto;
+    downloadBackup({prefix:'compasso-backup-antes-restauracao-nuvem',updateTimestamp:false,withTime:true});
+    data=schemaV2Engine.hydrate(structuredClone(backup.data));
+    if(photo)data.settings.foto=photo;
+    data.settings.lastCloudRestoreAt=new Date().toISOString();
+    data.demoEligible=false;data.demoKurtSeyit=true;
+    if(!save()){data=previous;throw new Error('Não foi possível salvar a cópia neste aparelho.');}
+    ui={...ui,page:'inicio',selectedStudent:null,selectedItem:null,selectedPayment:null,selectedClass:null,search:'',paymentMonth:0,moneyVisible:false,agendaView:'week',agendaMonth:0,showGoners:false};
+    closeModal(true);toast('Dados restaurados da nuvem');render();
+  }catch(error){toast(error?.message||'Não foi possível restaurar a cópia da nuvem.');}
+});
