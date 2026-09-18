@@ -1,6 +1,9 @@
 const STORAGE_KEY = 'compasso-static-v3';
 const OLD_STORAGE_KEY = 'compasso-static';
-const APP_VERSION = '1.1.19';
+const DEMO_STORAGE_KEY = 'compasso-demo-v1';
+const DEMO_ACTIVE_KEY = 'compasso-demo-active';
+const ONBOARDING_KEY = 'compasso-onboarding-complete-v1';
+const APP_VERSION = '1.1.21';
 const COLORS = ['#668981','#d47c63','#7973a5','#c0924e','#b36d83','#5683a0','#648c88'];
 const DAYS = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const STAGES = ['Em espera','Aprendendo','Executando'];
@@ -12,22 +15,9 @@ const money = value => Number(value || 0).toLocaleString('pt-BR',{style:'currenc
 const todayISO = () => {const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
 const initials = name => name.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase();
 
-const seed = {
-  alunos:[
-    {id:1,nome:'Marina Costa',ini:'MC',cor:'#668981',desde:'2024-03-12',dia:'Segunda',hora:'14:00',duracao:50,plano:'Mensal',valor:420,livro:'Leila Fletcher — Piano Course 2',livrosHistorico:[{nome:'Leila Fletcher — Piano Course 1',inicio:'2024-03-12',fim:'2025-01-20'},{nome:'Leila Fletcher — Piano Course 2',inicio:'2025-01-21'}],musicas:[{nome:'Gymnopédie No. 1',autor:'Erik Satie',status:'Aprendendo',inicio:'2026-06-10'},{nome:'Ode à Alegria',autor:'Beethoven',status:'Executando',inicio:'2025-08-18'}],notas:'Gosta de repertório impressionista. Trabalhar leitura à primeira vista.'},
-    {id:2,nome:'Pedro Almeida',ini:'PA',cor:'#d47c63',desde:'2025-02-03',dia:'Segunda',hora:'16:30',duracao:50,plano:'Por aula',valor:115,livro:'Meu Piano é Divertido — Vol. 1',livrosHistorico:[{nome:'Meu Piano é Divertido — Vol. 1',inicio:'2025-02-03'}],musicas:[{nome:'Asa Branca',autor:'Luiz Gonzaga',status:'Aprendendo',inicio:'2026-07-02'}],notas:'Confirmar aula com a mãe pela manhã.'},
-    {id:3,nome:'Ana Beatriz',ini:'AB',cor:'#7973a5',desde:'2023-08-15',dia:'Terça',hora:'10:00',duracao:60,plano:'Mensal',valor:480,livro:'Hanon — O Pianista Virtuoso',livrosHistorico:[{nome:'Czerny Op. 599',inicio:'2023-08-15',fim:'2025-10-01'},{nome:'Hanon — O Pianista Virtuoso',inicio:'2025-10-02'}],musicas:[{nome:'Für Elise',autor:'Beethoven',status:'Executando',inicio:'2026-02-12'},{nome:'Prelúdio em Dó Maior',autor:'J. S. Bach',status:'Em espera',inicio:'2026-05-20'}],notas:'Preparando apresentação de outubro.'},
-    {id:4,nome:'Lucas Mendes',ini:'LM',cor:'#c0924e',desde:'2024-11-07',dia:'Quarta',hora:'18:00',duracao:50,plano:'Mensal',valor:420,livro:"Alfred's Basic Piano Library 2",livrosHistorico:[{nome:"Alfred's Basic Piano Library 1",inicio:'2024-11-07',fim:'2026-03-14'},{nome:"Alfred's Basic Piano Library 2",inicio:'2026-03-15'}],musicas:[{nome:"Comptine d'un autre été",autor:'Yann Tiersen',status:'Aprendendo',inicio:'2026-07-16'}],notas:'Prefere cifras antes da partitura completa.'},
-    {id:5,nome:'Sofia Ribeiro',ini:'SR',cor:'#b36d83',desde:'2026-01-14',dia:'Quinta',hora:'15:30',duracao:60,plano:'Por aula',valor:130,livro:'A Dozen a Day — Livro 1',livrosHistorico:[{nome:'A Dozen a Day — Livro 1',inicio:'2026-01-14'}],musicas:[{nome:'River Flows in You',autor:'Yiruma',status:'Aprendendo',inicio:'2026-04-07'}],notas:'Alterna aulas presenciais e online.'},
-    {id:6,nome:'Rafael Nunes',ini:'RN',cor:'#5683a0',desde:'2022-05-09',dia:'Sexta',hora:'09:00',duracao:60,plano:'Mensal',valor:520,livro:'Czerny Op. 599',livrosHistorico:[{nome:'Hanon — O Pianista Virtuoso',inicio:'2022-05-09',fim:'2024-02-10'},{nome:'Czerny Op. 599',inicio:'2024-02-11'}],musicas:[{nome:'Clair de Lune',autor:'Claude Debussy',status:'Executando',inicio:'2025-11-03'}],notas:'Aluno avançado. Foco em interpretação.'}
-  ],
-  pagamentos:[{id:1,alunoId:1,ref:'Agosto/2026',valor:420,pago:true},{id:2,alunoId:2,ref:'Aula 03/08',valor:115,pago:true},{id:3,alunoId:2,ref:'Aula 10/08',valor:115,pago:false},{id:4,alunoId:3,ref:'Agosto/2026',valor:480,pago:true},{id:5,alunoId:4,ref:'Agosto/2026',valor:420,pago:false},{id:6,alunoId:5,ref:'Aula 06/08',valor:130,pago:true},{id:7,alunoId:5,ref:'Aula 13/08',valor:130,pago:false},{id:8,alunoId:6,ref:'Agosto/2026',valor:520,pago:true}],
-  livros:[], repertorio:[]
-};
-
 function migrate(raw){
   if(raw?.schemaVersion===2&&window.CompassoDataV2)return window.CompassoDataV2.hydrate(raw);
-  const freshInstall=!raw||!Array.isArray(raw.alunos), source = freshInstall ? structuredClone(seed) : raw;
+  const freshInstall=!raw||!Array.isArray(raw.alunos), source = freshInstall ? {alunos:[],pagamentos:[],livros:[],repertorio:[],classRecords:[],settings:{},demoEligible:false,demoKurtSeyit:true} : raw;
   source.alunos = source.alunos.map((a,index)=>{
     const musics=(a.musicas||a.repertorio||[]).map(m=>typeof m==='string'?{nome:m,autor:'',status:'Aprendendo',inicio:todayISO()}:({...m,status:m.status||m.etapa||'Aprendendo'}));
     const history=a.livrosHistorico||a.livros?.map((l,i)=>typeof l==='string'?{nome:l,inicio:a.desde||todayISO(),...(i<a.livros.length-1?{fim:todayISO()}:{})}:l)||[];
@@ -40,11 +30,16 @@ return {...a,id:a.id??Date.now()+index,ini:a.ini||initials(a.nome),cor:a.cor||CO
   const repertoireRows=[...source.alunos.flatMap(a=>a.musicas),...(source.repertorio||[])];
   source.livros=[...new Map(bookNames.map(nome=>[norm(nome),{nome,comentarios:(source.livros||[]).find(x=>norm(x.nome)===norm(nome))?.comentarios||''}])).values()];
   source.repertorio=[...new Map(repertoireRows.map(x=>{const item=typeof x==='string'?{nome:x,autor:'',comentarios:''}:x;return [norm(item.nome),{nome:item.nome,autor:item.autor||'',comentarios:item.comentarios||''}]})).values()];
-  source.demoEligible=source.demoEligible===true||freshInstall;
+  source.demoEligible=source.demoEligible===true&&!freshInstall;
   return source;
 }
 
-let data=migrate(JSON.parse(localStorage.getItem(STORAGE_KEY)||localStorage.getItem(OLD_STORAGE_KEY)||'null'));
+const realStoredRaw=localStorage.getItem(STORAGE_KEY)||localStorage.getItem(OLD_STORAGE_KEY);
+const existingInstall=!!realStoredRaw;
+let demoMode=localStorage.getItem(DEMO_ACTIVE_KEY)==='true';
+if(!localStorage.getItem(ONBOARDING_KEY))localStorage.setItem(ONBOARDING_KEY,existingInstall?'true':'pending');
+const initialStoredRaw=demoMode?localStorage.getItem(DEMO_STORAGE_KEY):realStoredRaw;
+let data=migrate(JSON.parse(initialStoredRaw||'null'));
 data.settings=data.settings||{teacherName:'',schoolName:''};
 let ui={page:'inicio',selectedStudent:null,selectedItem:null,selectedPayment:null,selectedClass:null,libraryKind:'musica',search:'',paymentFilter:'all',scheduleDay:DAYS[(new Date().getDay()+6)%7],paymentMonth:0,moneyVisible:false,agendaView:'week',agendaMonth:0};
 const app=$('#app');
@@ -87,7 +82,7 @@ function historicUsers(kind,name){return data.alunos.filter(a=>kind==='livro'?a.
 function personLine(a){return `<button class="person-line" data-student="${a.id}">${avatar(a)}<span><b>${esc(a.nome)}</b><small>${esc(a.dia)}, ${esc(a.hora)}</small></span>›</button>`}
 
 
-function render(){lastRenderedDate=todayISO();let body=ui.selectedClass?classDetail():ui.selectedStudent?studentProfile():ui.selectedItem?itemDetail():ui.selectedPayment?paymentDetail():ui.page==='inicio'?home():ui.page==='agenda'?schedule():ui.page==='alunos'?students():ui.page==='inativos'?inactiveStudents():ui.page==='pagamentos'?payments():library();app.innerHTML=`<main class="layout">${nav()}<section class="content">${body}</section></main>`;bind()}
+function render(){lastRenderedDate=todayISO();let body=ui.selectedClass?classDetail():ui.selectedStudent?studentProfile():ui.selectedItem?itemDetail():ui.selectedPayment?paymentDetail():ui.page==='inicio'?home():ui.page==='agenda'?schedule():ui.page==='alunos'?students():ui.page==='inativos'?inactiveStudents():ui.page==='pagamentos'?payments():library();app.innerHTML=`<main class="layout">${nav()}<section class="content">${demoMode?demoBanner():''}${body}</section></main>`;bind()}
 
 function bind(){
   $$('[data-page]').forEach(el=>el.onclick=()=>{ui.page=el.dataset.page;ui.selectedStudent=null;ui.selectedItem=null;ui.selectedPayment=null;ui.selectedClass=null;ui.search='';render()});
@@ -127,6 +122,7 @@ function bind(){
   $$('[data-agenda-view]').forEach(el=>el.onclick=()=>{ui.agendaView=el.dataset.agendaView;render()});
   $$('[data-agenda-month]').forEach(el=>el.onclick=()=>{ui.agendaMonth+=Number(el.dataset.agendaMonth);render()});
   $$('[data-photo-view]').forEach(el=>el.onclick=e=>{e.preventDefault();e.stopPropagation();openPhotoViewer(el.dataset.photoView)});
+  $('[data-exit-demo]')?.addEventListener('click',confirmExitDemoMode);
   $('[data-class-note]')?.addEventListener('change',e=>saveClassNoteSparse(e.target.value));
   $('[data-payment-note]')?.addEventListener('change',e=>savePaymentNoteSparse(e.target.value));
   const eye=$('#money-eye');if(eye){const show=e=>{e.preventDefault();ui.moneyVisible=true;updateMoneyDisplay()},hide=e=>{e.preventDefault();ui.moneyVisible=false;updateMoneyDisplay()};['pointerdown','touchstart','mousedown'].forEach(n=>eye.addEventListener(n,show,{passive:false}));['pointerup','pointercancel','pointerleave','touchend','mouseup','blur'].forEach(n=>eye.addEventListener(n,hide,{passive:false}));}
@@ -155,23 +151,6 @@ function openCropper(src,onSave){
   frame.onpointerdown=e=>{start={px:e.clientX,py:e.clientY,x,y};frame.setPointerCapture?.(e.pointerId)};
   frame.onpointermove=e=>{if(!start)return;x=Math.max(0,Math.min(100,start.x+(e.clientX-start.px)/2));y=Math.max(0,Math.min(100,start.y+(e.clientY-start.py)/2));paint()};
   frame.onpointerup=()=>start=null;$('.close-crop',back).onclick=()=>back.remove();$('.crop-save',back).onclick=()=>{onSave({src,zoom,x,y});back.remove()};paint();
-}
-function populateDemo(){
-  if(data.demoKurtSeyit||data.demoEligible!==true)return;
-  const portraits='assets/students-demo.png',cover='assets/book-demo.png';
-  data.settings={...data.settings,teacherName:data.settings.teacherName||'Lale Aydin',schoolName:data.settings.schoolName||'Escola de Música Pera',foto:data.settings.foto||{src:'assets/teacher-demo.png',zoom:100,x:50,y:50}};
-  const themed=[['Aylin Demir',{src:portraits,zoom:200,x:0,y:0}],['Nikolai Arslan',{src:portraits,zoom:200,x:100,y:0}],['Elena Yildiz',{src:portraits,zoom:200,x:0,y:100}],['Kemal Petrović',{src:portraits,zoom:200,x:100,y:100}]];
-  data.alunos.slice(0,4).forEach((a,i)=>{a.nome=themed[i][0];a.ini=initials(a.nome);a.foto=themed[i][1]});
-  data.alunos[0].aulas=[{dia:'Segunda',hora:'14:00',duracao:50},{dia:'Quinta',hora:'14:00',duracao:50}];
-  data.alunos[1].aulas=[{dia:'Terça',hora:'16:30',duracao:50},{dia:'Sexta',hora:'16:30',duracao:50}];
-  const add=(nome,aulas,livro,plano,valor,foto,ativo=true)=>{if(data.alunos.some(a=>a.nome===nome))return;data.alunos.push({id:Date.now()+data.alunos.length,nome,ini:initials(nome),cor:COLORS[data.alunos.length%COLORS.length],desde:'2026-02-10',aulas,dia:aulas[0].dia,hora:aulas[0].hora,duracao:aulas[0].duracao,plano,valor,livro,livrosHistorico:[{nome:livro,inicio:'2026-02-10'}],musicas:[{nome:'Noites sobre o Bósforo',autor:'Repertório tradicional',status:'Aprendendo',inicio:'2026-04-02'}],notas:'Exemplo inspirado no ambiente de Istambul e Crimeia do início do século XX.',foto,ativo,encerradoEm:ativo?undefined:'2026-06-30'})};
-  add('Meryem Volkov',[{dia:'Quarta',hora:'11:00',duracao:50},{dia:'Sábado',hora:'10:00',duracao:50}],'Pequenas peças do Bósforo','Mensal',450,{src:portraits,zoom:200,x:0,y:100});
-  add('Yusuf Kerem',[{dia:'Quinta',hora:'18:30',duracao:50}],'Caderno de Pera','Por aula',130,{src:portraits,zoom:200,x:100,y:0});
-  add('Seda Romanova',[{dia:'Terça',hora:'09:00',duracao:50}],'Pequenas peças do Bósforo','Mensal',420,{src:portraits,zoom:200,x:0,y:0},false);
-  add('Orhan Belov',[{dia:'Sexta',hora:'19:00',duracao:50}],'Caderno de Pera','Por aula',120,{src:portraits,zoom:200,x:100,y:100},false);
-  ['Pequenas peças do Bósforo','Caderno de Pera','Canções de Yalta'].forEach(nome=>{if(!data.livros.some(x=>norm(x.nome)===norm(nome)))data.livros.push({nome,comentarios:'Material de demonstração.',foto:{src:cover,zoom:100,x:50,y:50}})});
-  ['Noites sobre o Bósforo','Valsa de Yalta','Carta de Pera'].forEach(nome=>{if(!data.repertorio.some(x=>norm(x.nome)===norm(nome)))data.repertorio.push({nome,autor:'Repertório de demonstração',comentarios:'Peça de demonstração.',foto:{src:cover,zoom:160,x:50,y:50}})});
-  data.demoKurtSeyit=true;data.demoEligible=false;save();
 }
 function localISO(date){const y=date.getFullYear(),m=String(date.getMonth()+1).padStart(2,'0'),d=String(date.getDate()).padStart(2,'0');return `${y}-${m}-${d}`}
 function monthDate(offset=0){const now=new Date();return new Date(now.getFullYear(),now.getMonth()+offset,1)}
@@ -217,7 +196,7 @@ function ensurePaymentsForMonth(offset=0){
   });save();
 }
 async function openDirectCamera(fallbackInput,onCapture){let stream;try{if(!navigator.mediaDevices?.getUserMedia)throw new Error('unsupported');stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});document.body.insertAdjacentHTML('beforeend',`<div class="camera-screen"><video autoplay playsinline muted></video><div class="camera-bar"><button type="button" class="camera-cancel">×</button><button type="button" class="camera-shutter" aria-label="Tirar foto"><i></i></button><button type="button" class="camera-gallery" aria-label="Escolher foto">▧</button></div></div>`);const screen=$('.camera-screen'),video=$('video',screen),stop=()=>{stream?.getTracks().forEach(track=>track.stop());screen.remove()};video.srcObject=stream;await video.play();$('.camera-cancel',screen).onclick=stop;$('.camera-gallery',screen).onclick=()=>{stop();fallbackInput.click()};$('.camera-shutter',screen).onclick=()=>{if(!video.videoWidth){toast('A câmera ainda está iniciando');return}const canvas=document.createElement('canvas');canvas.width=video.videoWidth;canvas.height=video.videoHeight;canvas.getContext('2d').drawImage(video,0,0);const src=canvas.toDataURL('image/jpeg',.88);stop();openCropper(src,onCapture)}}catch(error){stream?.getTracks().forEach(track=>track.stop());if(error?.name==='NotAllowedError'||error?.name==='PermissionDeniedError'){toast('Permita o uso da câmera nas configurações do Compasso ou do Chrome');return}fallbackInput.click()}}
-function save(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(data));return true}catch(error){toast('Armazenamento cheio. Remova algumas fotos ou dados antes de continuar.');return false}}
+function save(){try{localStorage.setItem(demoMode?DEMO_STORAGE_KEY:STORAGE_KEY,JSON.stringify(data));return true}catch(error){toast('Armazenamento cheio. Remova algumas fotos ou dados antes de continuar.');return false}}
 function nav(){const items=[['inicio','⌂','Início'],['agenda','▦','Agenda'],['alunos','♙','Alunos'],['pagamentos','$','Pagamentos'],['acervo','♫','Acervo']];return `<aside><div class="brand"><b>C</b><strong>Compasso</strong></div>${items.map(x=>`<button class="${ui.page===x[0]&&!ui.selectedStudent&&!ui.selectedItem?'on':''}" data-page="${x[0]}"><i>${x[1]}</i>${x[2]}</button>`).join('')}<button class="user user-button" data-profile-settings>${profileShortcutAvatar()}<span><b>${esc(data.settings.teacherName||'Professor de piano')}</b><small>${esc(data.settings.schoolName||'Definir escola')}</small></span></button></aside><nav class="mobile-nav">${items.map(x=>`<button class="${ui.page===x[0]&&!ui.selectedStudent&&!ui.selectedItem?'on':''}" data-page="${x[0]}"><i>${x[1]}</i><small>${x[2]}</small></button>`).join('')}</nav>`}
 function openEraseAllDataModal(){modalShell('Apagar todos os dados',`<div class="erase-warning"><b>Esta ação não pode ser desfeita.</b><p>Os cadastros, aulas e pagamentos sem recebimento serão apagados. O perfil e o histórico de recebimentos serão preservados.</p></div><label>Para confirmar, digite exatamente:<strong>erase all data</strong><input id="erase-confirmation" type="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" data-lpignore="true" data-1p-ignore="true" name="compasso-delete-confirmation-${Date.now()}" required></label>`);$('.modal .save').textContent='Apagar definitivamente';$('.modal').onsubmit=e=>{e.preventDefault();if($('#erase-confirmation').value!=='erase all data'){showDuplicate('A frase não corresponde. Digite exatamente: erase all data');return}const previousData=data,teacher={...data.settings};data={alunos:[],pagamentos:[],livros:[],repertorio:[],classRecords:[],settings:teacher,demoKurtSeyit:true,demoEligible:false,dataErased:true};preservePaymentHistory(data,previousData);ui={...ui,page:'inicio',selectedStudent:null,selectedItem:null,selectedPayment:null,selectedClass:null,search:'',paymentMonth:0,agendaMonth:0};if(!save())return;closeModal();toast('Cadastros apagados. Recebimentos preservados.');render()}}
 async function openDirectCamera(fallbackInput,onCapture){let stream;try{if(!navigator.mediaDevices?.getUserMedia)throw new Error('unsupported');stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});document.body.insertAdjacentHTML('beforeend',`<div class="camera-screen"><video autoplay playsinline muted></video><div class="camera-bar"><button type="button" class="camera-cancel">×</button><button type="button" class="camera-shutter" aria-label="Tirar foto"><i></i></button><button type="button" class="camera-gallery" aria-label="Escolher foto">▧</button></div></div>`);const screen=$('.camera-screen'),video=$('video',screen),stop=()=>{stream?.getTracks().forEach(track=>track.stop());screen.remove()};video.srcObject=stream;await video.play();$('.camera-cancel',screen).onclick=stop;$('.camera-gallery',screen).onclick=()=>{stop();fallbackInput.click()};$('.camera-shutter',screen).onclick=()=>{if(!video.videoWidth){toast('A câmera ainda está iniciando');return}const canvas=document.createElement('canvas');canvas.width=video.videoWidth;canvas.height=video.videoHeight;canvas.getContext('2d').drawImage(video,0,0);const src=canvas.toDataURL('image/jpeg',.88);stop();openCropper(src,onCapture)}}catch(error){stream?.getTracks().forEach(track=>track.stop());if(error?.name==='NotAllowedError'||error?.name==='PermissionDeniedError')toast('A câmera foi bloqueada. Verifique as permissões do Compasso ou do Chrome.');fallbackInput.click()}}
@@ -343,7 +322,6 @@ weeklyAgenda=function(){return weeklyAgendaWithBirthdayEvents().replace('','')};
 const monthlyAgendaWithBirthdayEvents=monthlyAgenda;
 monthlyAgenda=function(){return monthlyAgendaWithBirthdayEvents().replace('','')};
 
-populateDemo();
 migrateAcademicLinks();
 cleanOptionalBooks();
 save();render();
@@ -479,11 +457,11 @@ var lastSavedState=structuredClone(data);
 save=function(){
   try{
     const candidate=structuredClone(data),canonical=schemaV2Engine.canonicalOnly(candidate);
-    localStorage.setItem(STORAGE_KEY,JSON.stringify(canonical));
+    localStorage.setItem(demoMode?DEMO_STORAGE_KEY:STORAGE_KEY,JSON.stringify(canonical));
     restoreRuntime(data,candidate);
     lastSavedState=structuredClone(data);
     paymentProjectionCacheV2?.clear();classProjectionCacheV2?.clear();
-    if(canonical.meta?.dataErased){try{localStorage.removeItem(SCHEMA_V1_RECOVERY_KEY)}catch(error){}}
+    if(!demoMode&&canonical.meta?.dataErased){try{localStorage.removeItem(SCHEMA_V1_RECOVERY_KEY)}catch(error){}}
     return true;
   }catch(error){
     if(lastSavedState)restoreRuntime(data,lastSavedState);
@@ -666,12 +644,12 @@ function preservePaymentHistory(target,previous){
   target.pagamentos=[...retained.values()];
 }
 
-// Private Google cloud copy (v1.1.18). Photos deliberately stay only on the device.
-window.CompassoCloudBackup=()=>createBackupDocument();
+// Private Google cloud copy (v1.1.20). Photos deliberately stay only on the device.
+window.CompassoCloudBackup=()=>demoMode?null:createBackupDocument();
 const saveBeforeCloud=save;
 save=function(){
   const saved=saveBeforeCloud();
-  if(saved)window.CompassoCloud?.sync?.(createBackupDocument());
+  if(saved&&!demoMode)window.CompassoCloud?.sync?.(createBackupDocument());
   return saved;
 };
 function cloudPanelMarkup(){
@@ -679,7 +657,9 @@ function cloudPanelMarkup(){
   if(!cloud)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Cópia na nuvem</b><p>Preparando proteção dos dados…</p></span></div></section>`;
   if(!cloud.user)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Cópia na nuvem</b><p>${esc(cloud.status)}</p></span></div><button type="button" class="cloud-action" data-cloud-sign-in>Entrar com Google</button></section>`;
   const account=cloud.user.displayName||cloud.user.email||'Conta Google';
-  if(!cloud.hasCloudCopy)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Cópia na nuvem</b><p>${esc(cloud.status)} · ${esc(account)}</p></span></div><button type="button" class="cloud-action" data-cloud-upload>Fazer primeira cópia</button><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
+  if(cloud.checkState==='checking')return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Verificando a nuvem…</b><p>${esc(account)}</p></span></div></section>`;
+  if(cloud.checkState==='error')return `<section class="cloud-zone cloud-error" data-cloud-zone><div class="backup-heading"><i>!</i><span><b>Não foi possível verificar a nuvem</b><p>${esc(cloud.status)}</p></span></div><button type="button" class="cloud-action" data-cloud-retry>Tentar novamente</button><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
+  if(cloud.checkState==='missing')return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Proteja seus dados</b><p>Nenhuma cópia encontrada para ${esc(account)}.</p></span></div><button type="button" class="cloud-action" data-cloud-upload>Fazer primeira cópia</button><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
   if(!cloud.syncEnabled)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Cópia na nuvem</b><p>${esc(cloud.status)} · ${esc(account)}</p></span></div><div class="cloud-actions"><button type="button" class="cloud-action" data-cloud-restore>Restaurar da nuvem</button><button type="button" class="cloud-secondary" data-cloud-upload>Usar dados deste aparelho</button></div><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
   return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Dados protegidos na nuvem</b><p>${esc(cloud.status)} · ${esc(account)}</p></span></div><div class="cloud-actions"><button type="button" class="cloud-secondary" data-cloud-restore>Restaurar cópia</button><button type="button" class="cloud-secondary" data-cloud-upload>Salvar agora</button></div><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
 }
@@ -687,7 +667,13 @@ function bindCloudPanel(){
   const zone=$('[data-cloud-zone]');if(!zone)return;
   const run=async(action)=>{try{await action()}catch(error){toast(error?.message||'Não foi possível concluir agora.')}};
   $('[data-cloud-sign-in]',zone)?.addEventListener('click',()=>run(()=>window.CompassoCloud.signIn()));
-  $('[data-cloud-upload]',zone)?.addEventListener('click',()=>run(async()=>{await window.CompassoCloud.uploadCurrent();toast('Cópia salva na nuvem')}));
+  $('[data-cloud-retry]',zone)?.addEventListener('click',()=>run(()=>window.CompassoCloud.retry()));
+  $('[data-cloud-upload]',zone)?.addEventListener('click',()=>{
+    const cloud=window.CompassoCloud.state;
+    const upload=()=>run(async()=>{await window.CompassoCloud.uploadCurrent();toast('Cópia salva na nuvem')});
+    if(cloud.hasCloudCopy&&!cloud.syncEnabled)showActionDialog({title:'Substituir a cópia da nuvem?',message:'A cópia desta conta será substituída pelos dados atuais deste aparelho. As fotos não são enviadas.',actions:[{label:'Usar dados deste aparelho',tone:'danger',run:upload},{label:'Voltar',tone:'neutral'}]});
+    else upload();
+  });
   $('[data-cloud-sign-out]',zone)?.addEventListener('click',()=>run(async()=>{await window.CompassoCloud.signOut();toast('Conta desconectada')}));
   $('[data-cloud-restore]',zone)?.addEventListener('click',()=>showActionDialog({title:'Restaurar dados da nuvem?',message:'Os cadastros deste aparelho serão substituídos pela cópia da sua conta Google. As fotos não fazem parte da nuvem.',actions:[{label:'Restaurar cópia',tone:'danger',run:()=>run(()=>window.CompassoCloud.restore())},{label:'Voltar',tone:'neutral'}]}));
 }
@@ -696,6 +682,9 @@ openProfileSettings=function(){
   openProfileSettingsBeforeCloud();
   const backup=$('.backup-zone');
   if(!backup)return;
+  if(demoMode){backup.insertAdjacentHTML('beforebegin','<section class="demo-profile-note"><b>Modo demonstração</b><p>Backup, importação e nuvem ficam desativados neste espaço. Seus dados reais continuam separados.</p><button type="button" data-exit-demo>Sair da demonstração</button></section>');backup.remove();$('.erase-zone')?.remove();$('[data-exit-demo]')?.addEventListener('click',confirmExitDemoMode);return}
+  backup.insertAdjacentHTML('beforebegin','<section class="tutorial-zone"><span><b>Conhecer o Compasso</b><p>Explore um exemplo separado, sem alterar seus cadastros.</p></span><button type="button" data-enter-demo>Ver demonstração</button></section>');
+  $('[data-enter-demo]')?.addEventListener('click',()=>{if(closeModal(false,enterDemoMode))enterDemoMode()});
   backup.insertAdjacentHTML('beforebegin',cloudPanelMarkup());
   bindCloudPanel();
 };
@@ -704,7 +693,7 @@ window.addEventListener('compasso-cloud-state',()=>{
   zone.outerHTML=cloudPanelMarkup();bindCloudPanel();
 });
 window.addEventListener('compasso-cloud-restore',event=>{
-  const backup=event.detail;
+  const {backup,resolve,reject}=event.detail;
   try{
     validateBackupDocument(backup);
     const previous=structuredClone(data),photo=data.settings?.foto;
@@ -715,6 +704,33 @@ window.addEventListener('compasso-cloud-restore',event=>{
     data.demoEligible=false;data.demoKurtSeyit=true;
     if(!save()){data=previous;throw new Error('Não foi possível salvar a cópia neste aparelho.');}
     ui={...ui,page:'inicio',selectedStudent:null,selectedItem:null,selectedPayment:null,selectedClass:null,search:'',paymentMonth:0,moneyVisible:false,agendaView:'week',agendaMonth:0,showGoners:false};
-    closeModal(true);toast('Dados restaurados da nuvem');render();
-  }catch(error){toast(error?.message||'Não foi possível restaurar a cópia da nuvem.');}
+    closeModal(true);toast('Dados restaurados da nuvem');render();resolve?.();
+  }catch(error){reject?.(error);}
 });
+
+// Isolated tutorial workspace and first-use onboarding (v1.1.21)
+function demoBanner(){return `<div class="demo-banner"><span><b>Modo demonstração</b><small>Explore à vontade. Nada daqui será enviado à nuvem ou misturado aos seus dados.</small></span><button type="button" data-exit-demo>Sair</button></div>`}
+function resetWorkspaceUi(){ui={...ui,page:'inicio',selectedStudent:null,selectedItem:null,selectedPayment:null,selectedClass:null,search:'',paymentMonth:0,moneyVisible:false,agendaView:'week',agendaMonth:0,showGoners:false}}
+function runtimeFromStored(raw){return schemaV2Engine?schemaV2Engine.hydrate(raw?.schemaVersion===2?raw:schemaV2Engine.fromLegacy(raw||{})):migrate(raw)}
+async function enterDemoMode(){
+  try{
+    const response=await fetch('demo-data.json',{cache:'no-store'});if(!response.ok)throw new Error('Não foi possível abrir a demonstração.');
+    const example=await response.json();if(!Array.isArray(example.alunos))throw new Error('A demonstração está danificada.');
+    demoMode=true;localStorage.setItem(DEMO_ACTIVE_KEY,'true');localStorage.setItem(ONBOARDING_KEY,'true');
+    data=runtimeFromStored(example);lastSavedState=structuredClone(data);if(!save())throw new Error('Não foi possível preparar a demonstração.');
+    $('.onboarding-back')?.remove();closeModal(true);resetWorkspaceUi();render();toast('Demonstração aberta');
+  }catch(error){demoMode=false;localStorage.removeItem(DEMO_ACTIVE_KEY);localStorage.removeItem(DEMO_STORAGE_KEY);const raw=localStorage.getItem(STORAGE_KEY)||localStorage.getItem(OLD_STORAGE_KEY);data=runtimeFromStored(JSON.parse(raw||'null'));lastSavedState=structuredClone(data);toast(error?.message||'Não foi possível abrir a demonstração.');throw error}
+}
+function exitDemoMode(){
+  demoMode=false;localStorage.removeItem(DEMO_ACTIVE_KEY);localStorage.removeItem(DEMO_STORAGE_KEY);
+  const raw=localStorage.getItem(STORAGE_KEY)||localStorage.getItem(OLD_STORAGE_KEY);data=runtimeFromStored(JSON.parse(raw||'null'));lastSavedState=structuredClone(data);resetWorkspaceUi();render();toast('Seus dados reais estão de volta');
+}
+function confirmExitDemoMode(){showActionDialog({title:'Sair da demonstração?',message:'As alterações feitas no exemplo serão descartadas. Seus dados reais permanecem intactos.',actions:[{label:'Sair da demonstração',run:exitDemoMode},{label:'Continuar explorando',tone:'neutral'}]})}
+function openOnboarding(){
+  if(document.querySelector('.onboarding-back'))return;
+  document.body.insertAdjacentHTML('beforeend',`<div class="onboarding-back"><section class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboarding-title"><div class="onboarding-mark">C</div><small>COMPASSO</small><h2 id="onboarding-title">Seu estúdio começa aqui</h2><p>Organize alunos, aulas, repertório e pagamentos do seu jeito.</p><div class="onboarding-actions"><button type="button" class="onboarding-primary" data-onboarding-cloud><i>☁</i><span><b>Entrar e recuperar dados</b><small>Use uma cópia da sua conta Google</small></span></button><button type="button" data-onboarding-empty><i>＋</i><span><b>Começar do zero</b><small>Abra um espaço real e vazio</small></span></button><button type="button" data-onboarding-demo><i>♫</i><span><b>Explorar demonstração</b><small>Conheça o Compasso sem misturar dados</small></span></button></div></section></div>`);
+  $('[data-onboarding-empty]').onclick=()=>{localStorage.setItem(ONBOARDING_KEY,'true');$('.onboarding-back')?.remove();toast('Espaço pronto para começar')};
+  $('[data-onboarding-cloud]').onclick=()=>{localStorage.setItem(ONBOARDING_KEY,'true');$('.onboarding-back')?.remove();openProfileSettings()};
+  $('[data-onboarding-demo]').onclick=event=>{event.currentTarget.disabled=true;event.currentTarget.querySelector('small').textContent='Preparando exemplo…';enterDemoMode().catch(()=>{if(event.currentTarget?.isConnected){event.currentTarget.disabled=false;event.currentTarget.querySelector('small').textContent='Conheça o Compasso sem misturar dados'}})};
+}
+if(localStorage.getItem(ONBOARDING_KEY)==='pending'&&!demoMode)setTimeout(openOnboarding,0);

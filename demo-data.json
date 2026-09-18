@@ -1,0 +1,133 @@
+{
+  "settings": {
+    "teacherName": "Lale Aydin",
+    "schoolName": "Escola de Música Pera",
+    "foto": { "src": "assets/teacher-demo.png", "zoom": 100, "x": 50, "y": 50 }
+  },
+  "alunos": [
+    {
+      "id": "demo-aylin",
+      "nome": "Aylin Demir",
+      "desde": "2025-03-12",
+      "nascimento": "2001-09-22",
+      "ativo": true,
+      "plano": "Mensal",
+      "valor": 420,
+      "aulas": [
+        { "dia": "Segunda", "hora": "14:00", "duracao": 50, "criadoEm": "2025-03-12" },
+        { "dia": "Quinta", "hora": "14:00", "duracao": 50, "criadoEm": "2025-03-12" }
+      ],
+      "livro": "Leila Fletcher — Piano Course 2",
+      "livrosHistorico": [
+        { "nome": "Leila Fletcher — Piano Course 1", "inicio": "2025-03-12", "fim": "2026-01-20" },
+        { "nome": "Leila Fletcher — Piano Course 2", "inicio": "2026-01-21" }
+      ],
+      "musicas": [
+        { "nome": "Noites sobre o Bósforo", "autor": "Repertório tradicional", "status": "Aprendendo", "inicio": "2026-04-02", "statusHistorico": [{ "status": "Aprendendo", "data": "2026-04-02" }] },
+        { "nome": "Valsa de Yalta", "autor": "Repertório tradicional", "status": "Executando", "inicio": "2025-10-10", "statusHistorico": [{ "status": "Aprendendo", "data": "2025-10-10" }, { "status": "Executando", "data": "2026-06-05" }] }
+      ],
+      "notas": "Exemplo de aluna com duas aulas semanais.",
+      "foto": { "src": "assets/students-demo.png", "zoom": 200, "x": 0, "y": 0 }
+    },
+    {
+      "id": "demo-nikolai",
+      "nome": "Nikolai Arslan",
+      "desde": "2025-08-03",
+      "ativo": true,
+      "plano": "Por aula",
+      "valor": 115,
+      "aulas": [
+        { "dia": "Terça", "hora": "16:30", "duracao": 50, "criadoEm": "2025-08-03" },
+        { "dia": "Sexta", "hora": "16:30", "duracao": 50, "criadoEm": "2025-08-03" }
+      ],
+      "livro": "Caderno de Pera",
+      "livrosHistorico": [{ "nome": "Caderno de Pera", "inicio": "2025-08-03" }],
+      "musicas": [{ "nome": "Carta de Pera", "autor": "Repertório de demonstração", "status": "Aprendendo", "inicio": "2026-02-12", "statusHistorico": [{ "status": "Em espera", "data": "2026-02-12" }, { "status": "Aprendendo", "data": "2026-03-10" }] }],
+      "notas": "Exemplo de plano por aula.",
+      "foto": { "src": "assets/students-demo.png", "zoom": 200, "x": 100, "y": 0 }
+    },
+    {
+      "id": "demo-elena",
+      "nome": "Elena Yildiz",
+      "desde": "2024-08-15",
+      "ativo": true,
+      "plano": "Mensal",
+      "valor": 480,
+      "aulas": [{ "dia": "Quarta", "hora": "10:00", "duracao": 60, "criadoEm": "2024-08-15" }],
+      "livro": "Pequenas peças do Bósforo",
+      "livrosHistorico": [{ "nome": "Pequenas peças do Bósforo", "inicio": "2024-08-15" }],
+      "musicas": [{ "nome": "Valsa de Yalta", "autor": "Repertório tradicional", "status": "Executando", "inicio": "2025-11-03", "statusHistorico": [{ "status": "Aprendendo", "data": "2025-11-03" }, { "status": "Executando", "data": "2026-05-14" }] }],
+      "notas": "Preparando apresentação de outubro.",
+      "foto": { "src": "assets/students-demo.png", "zoom": 200, "x": 0, "y": 100 }
+    },
+    {
+      "id": "demo-kemal",
+      "nome": "Kemal Petrović",
+      "desde": "2025-11-07",
+      "ativo": true,
+      "plano": "Mensal",
+      "valor": 420,
+      "aulas": [{ "dia": "Quarta", "hora": "18:00", "duracao": 50, "criadoEm": "2025-11-07" }],
+      "livro": "Alfred's Basic Piano Library 2",
+      "livrosHistorico": [
+        { "nome": "Alfred's Basic Piano Library 1", "inicio": "2025-11-07", "fim": "2026-03-14" },
+        { "nome": "Alfred's Basic Piano Library 2", "inicio": "2026-03-15" }
+      ],
+      "musicas": [{ "nome": "Noites sobre o Bósforo", "autor": "Repertório tradicional", "status": "Aprendendo", "inicio": "2026-07-16", "statusHistorico": [{ "status": "Aprendendo", "data": "2026-07-16" }] }],
+      "notas": "Exemplo de histórico de livros.",
+      "foto": { "src": "assets/students-demo.png", "zoom": 200, "x": 100, "y": 100 }
+    },
+    {
+      "id": "demo-meryem",
+      "nome": "Meryem Volkov",
+      "desde": "2026-02-10",
+      "ativo": true,
+      "plano": "Mensal",
+      "valor": 450,
+      "aulas": [
+        { "dia": "Quarta", "hora": "11:00", "duracao": 50, "criadoEm": "2026-02-10" },
+        { "dia": "Sábado", "hora": "10:00", "duracao": 50, "criadoEm": "2026-02-10" }
+      ],
+      "livro": "Pequenas peças do Bósforo",
+      "livrosHistorico": [{ "nome": "Pequenas peças do Bósforo", "inicio": "2026-02-10" }],
+      "musicas": [{ "nome": "Noites sobre o Bósforo", "autor": "Repertório tradicional", "status": "Aprendendo", "inicio": "2026-04-02", "statusHistorico": [{ "status": "Aprendendo", "data": "2026-04-02" }] }],
+      "notas": "Exemplo de estudante com aula aos sábados.",
+      "foto": { "src": "assets/students-demo.png", "zoom": 200, "x": 0, "y": 100 }
+    },
+    {
+      "id": "demo-seda",
+      "nome": "Seda Romanova",
+      "desde": "2025-02-10",
+      "encerradoEm": "2026-06-30",
+      "ativo": false,
+      "plano": "Mensal",
+      "valor": 420,
+      "aulas": [{ "dia": "Terça", "hora": "09:00", "duracao": 50, "criadoEm": "2025-02-10" }],
+      "livro": "",
+      "livrosHistorico": [{ "nome": "Caderno de Pera", "inicio": "2025-02-10", "fim": "2026-06-30" }],
+      "musicas": [{ "nome": "Carta de Pera", "autor": "Repertório de demonstração", "status": "Executando", "inicio": "2025-08-02", "fim": "2026-06-30", "statusHistorico": [{ "status": "Aprendendo", "data": "2025-08-02" }, { "status": "Executando", "data": "2026-01-12" }] }],
+      "notas": "Exemplo de ex-aluna com histórico preservado.",
+      "foto": { "src": "assets/students-demo.png", "zoom": 200, "x": 0, "y": 0 }
+    }
+  ],
+  "livros": [
+    { "nome": "Leila Fletcher — Piano Course 1", "comentarios": "Material de demonstração.", "foto": { "src": "assets/book-demo.png", "zoom": 100, "x": 50, "y": 50 } },
+    { "nome": "Leila Fletcher — Piano Course 2", "comentarios": "Material de demonstração.", "foto": { "src": "assets/book-demo.png", "zoom": 100, "x": 50, "y": 50 } },
+    { "nome": "Caderno de Pera", "comentarios": "Material de demonstração.", "foto": { "src": "assets/book-demo.png", "zoom": 100, "x": 50, "y": 50 } },
+    { "nome": "Pequenas peças do Bósforo", "comentarios": "Material de demonstração.", "foto": { "src": "assets/book-demo.png", "zoom": 100, "x": 50, "y": 50 } },
+    { "nome": "Alfred's Basic Piano Library 1", "comentarios": "Material de demonstração.", "foto": { "src": "assets/book-demo.png", "zoom": 100, "x": 50, "y": 50 } },
+    { "nome": "Alfred's Basic Piano Library 2", "comentarios": "Material de demonstração.", "foto": { "src": "assets/book-demo.png", "zoom": 100, "x": 50, "y": 50 } }
+  ],
+  "repertorio": [
+    { "nome": "Noites sobre o Bósforo", "autor": "Repertório tradicional", "comentarios": "Peça de demonstração.", "foto": { "src": "assets/book-demo.png", "zoom": 160, "x": 50, "y": 50 } },
+    { "nome": "Valsa de Yalta", "autor": "Repertório tradicional", "comentarios": "Peça de demonstração.", "foto": { "src": "assets/book-demo.png", "zoom": 160, "x": 50, "y": 50 } },
+    { "nome": "Carta de Pera", "autor": "Repertório de demonstração", "comentarios": "Peça de demonstração.", "foto": { "src": "assets/book-demo.png", "zoom": 160, "x": 50, "y": 50 } }
+  ],
+  "pagamentos": [
+    { "id": "demo-payment-aylin", "alunoId": "demo-aylin", "ref": "Setembro/2026", "valor": 420, "pago": true, "pagoEm": "2026-09-05", "dueDate": "2026-09-01", "history": [{ "type": "confirmed", "at": "2026-09-05T12:00:00.000Z" }] },
+    { "id": "demo-payment-nikolai", "alunoId": "demo-nikolai", "ref": "Aula 04/09", "valor": 115, "pago": true, "pagoEm": "2026-09-04", "dueDate": "2026-09-04", "history": [{ "type": "confirmed", "at": "2026-09-04T18:00:00.000Z" }] }
+  ],
+  "classRecords": [],
+  "demoEligible": false,
+  "demoKurtSeyit": true
+}
