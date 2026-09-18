@@ -3,7 +3,8 @@ const OLD_STORAGE_KEY = 'compasso-static';
 const DEMO_STORAGE_KEY = 'compasso-demo-v1';
 const DEMO_ACTIVE_KEY = 'compasso-demo-active';
 const ONBOARDING_KEY = 'compasso-onboarding-complete-v1';
-const APP_VERSION = '1.1.21';
+const ONBOARDING_AUTH_KEY = 'compasso-onboarding-google-pending';
+const APP_VERSION = '1.1.22';
 const COLORS = ['#668981','#d47c63','#7973a5','#c0924e','#b36d83','#5683a0','#648c88'];
 const DAYS = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const STAGES = ['Em espera','Aprendendo','Executando'];
@@ -198,7 +199,25 @@ function ensurePaymentsForMonth(offset=0){
 async function openDirectCamera(fallbackInput,onCapture){let stream;try{if(!navigator.mediaDevices?.getUserMedia)throw new Error('unsupported');stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});document.body.insertAdjacentHTML('beforeend',`<div class="camera-screen"><video autoplay playsinline muted></video><div class="camera-bar"><button type="button" class="camera-cancel">×</button><button type="button" class="camera-shutter" aria-label="Tirar foto"><i></i></button><button type="button" class="camera-gallery" aria-label="Escolher foto">▧</button></div></div>`);const screen=$('.camera-screen'),video=$('video',screen),stop=()=>{stream?.getTracks().forEach(track=>track.stop());screen.remove()};video.srcObject=stream;await video.play();$('.camera-cancel',screen).onclick=stop;$('.camera-gallery',screen).onclick=()=>{stop();fallbackInput.click()};$('.camera-shutter',screen).onclick=()=>{if(!video.videoWidth){toast('A câmera ainda está iniciando');return}const canvas=document.createElement('canvas');canvas.width=video.videoWidth;canvas.height=video.videoHeight;canvas.getContext('2d').drawImage(video,0,0);const src=canvas.toDataURL('image/jpeg',.88);stop();openCropper(src,onCapture)}}catch(error){stream?.getTracks().forEach(track=>track.stop());if(error?.name==='NotAllowedError'||error?.name==='PermissionDeniedError'){toast('Permita o uso da câmera nas configurações do Compasso ou do Chrome');return}fallbackInput.click()}}
 function save(){try{localStorage.setItem(demoMode?DEMO_STORAGE_KEY:STORAGE_KEY,JSON.stringify(data));return true}catch(error){toast('Armazenamento cheio. Remova algumas fotos ou dados antes de continuar.');return false}}
 function nav(){const items=[['inicio','⌂','Início'],['agenda','▦','Agenda'],['alunos','♙','Alunos'],['pagamentos','$','Pagamentos'],['acervo','♫','Acervo']];return `<aside><div class="brand"><b>C</b><strong>Compasso</strong></div>${items.map(x=>`<button class="${ui.page===x[0]&&!ui.selectedStudent&&!ui.selectedItem?'on':''}" data-page="${x[0]}"><i>${x[1]}</i>${x[2]}</button>`).join('')}<button class="user user-button" data-profile-settings>${profileShortcutAvatar()}<span><b>${esc(data.settings.teacherName||'Professor de piano')}</b><small>${esc(data.settings.schoolName||'Definir escola')}</small></span></button></aside><nav class="mobile-nav">${items.map(x=>`<button class="${ui.page===x[0]&&!ui.selectedStudent&&!ui.selectedItem?'on':''}" data-page="${x[0]}"><i>${x[1]}</i><small>${x[2]}</small></button>`).join('')}</nav>`}
-function openEraseAllDataModal(){modalShell('Apagar todos os dados',`<div class="erase-warning"><b>Esta ação não pode ser desfeita.</b><p>Os cadastros, aulas e pagamentos sem recebimento serão apagados. O perfil e o histórico de recebimentos serão preservados.</p></div><label>Para confirmar, digite exatamente:<strong>erase all data</strong><input id="erase-confirmation" type="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" data-lpignore="true" data-1p-ignore="true" name="compasso-delete-confirmation-${Date.now()}" required></label>`);$('.modal .save').textContent='Apagar definitivamente';$('.modal').onsubmit=e=>{e.preventDefault();if($('#erase-confirmation').value!=='erase all data'){showDuplicate('A frase não corresponde. Digite exatamente: erase all data');return}const previousData=data,teacher={...data.settings};data={alunos:[],pagamentos:[],livros:[],repertorio:[],classRecords:[],settings:teacher,demoKurtSeyit:true,demoEligible:false,dataErased:true};preservePaymentHistory(data,previousData);ui={...ui,page:'inicio',selectedStudent:null,selectedItem:null,selectedPayment:null,selectedClass:null,search:'',paymentMonth:0,agendaMonth:0};if(!save())return;closeModal();toast('Cadastros apagados. Recebimentos preservados.');render()}}
+function openEraseAllDataModal(){
+  const cloud=window.CompassoCloud?.state,cloudActive=!!(cloud?.user&&cloud?.syncEnabled);
+  modalShell('Apagar todos os dados',`<div class="erase-warning"><b>Esta ação não pode ser desfeita.</b><p>Todos os alunos, livros, repertórios, aulas, pagamentos e históricos serão apagados deste aparelho. Se a sincronização estiver ativa, esses dados também serão removidos da nuvem. Seu nome, escola e foto serão mantidos.</p></div><label>Para confirmar, digite exatamente:<strong>apagar todos os dados</strong><input id="erase-confirmation" type="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" data-lpignore="true" data-1p-ignore="true" name="compasso-delete-confirmation-${Date.now()}" required></label>`);
+  const submit=$('.modal .save');submit.textContent='Apagar definitivamente';
+  $('.modal').onsubmit=async event=>{
+    event.preventDefault();
+    if($('#erase-confirmation').value!=='apagar todos os dados'){showDuplicate('A frase não corresponde. Digite exatamente: apagar todos os dados');return}
+    const previousData=data,teacher={...data.settings};
+    data={alunos:[],pagamentos:[],livros:[],repertorio:[],classRecords:[],settings:teacher,demoKurtSeyit:true,demoEligible:false,dataErased:true};
+    submit.disabled=true;submit.textContent=cloudActive?'Apagando neste aparelho e na nuvem…':'Apagando…';
+    if(!saveBeforeCloud()){data=previousData;submit.disabled=false;submit.textContent='Apagar definitivamente';return}
+    try{
+      if(cloudActive)await window.CompassoCloud.uploadCurrent();
+    }catch(error){
+      data=previousData;saveBeforeCloud();submit.disabled=false;submit.textContent='Apagar definitivamente';showDuplicate('Não foi possível apagar a cópia da nuvem. Nada foi removido; confira sua conexão e tente novamente.');return;
+    }
+    resetWorkspaceUi();closeModal(true);toast(cloudActive?'Dados apagados deste aparelho e da nuvem':'Todos os dados foram apagados');render();
+  };
+}
 async function openDirectCamera(fallbackInput,onCapture){let stream;try{if(!navigator.mediaDevices?.getUserMedia)throw new Error('unsupported');stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});document.body.insertAdjacentHTML('beforeend',`<div class="camera-screen"><video autoplay playsinline muted></video><div class="camera-bar"><button type="button" class="camera-cancel">×</button><button type="button" class="camera-shutter" aria-label="Tirar foto"><i></i></button><button type="button" class="camera-gallery" aria-label="Escolher foto">▧</button></div></div>`);const screen=$('.camera-screen'),video=$('video',screen),stop=()=>{stream?.getTracks().forEach(track=>track.stop());screen.remove()};video.srcObject=stream;await video.play();$('.camera-cancel',screen).onclick=stop;$('.camera-gallery',screen).onclick=()=>{stop();fallbackInput.click()};$('.camera-shutter',screen).onclick=()=>{if(!video.videoWidth){toast('A câmera ainda está iniciando');return}const canvas=document.createElement('canvas');canvas.width=video.videoWidth;canvas.height=video.videoHeight;canvas.getContext('2d').drawImage(video,0,0);const src=canvas.toDataURL('image/jpeg',.88);stop();openCropper(src,onCapture)}}catch(error){stream?.getTracks().forEach(track=>track.stop());if(error?.name==='NotAllowedError'||error?.name==='PermissionDeniedError')toast('A câmera foi bloqueada. Verifique as permissões do Compasso ou do Chrome.');fallbackInput.click()}}
 function profileShortcutAvatar(){const photo=data.settings?.foto;return photo?`<i class="avatar photo" style="${photoStyle(photo)}"></i>`:'<i class="avatar profile-fallback">P</i>'}
 function home(){const today=data.alunos.filter(a=>a.ativo!==false&&classSlots(a).some(s=>s.dia===ui.scheduleDay)).flatMap(a=>classSlots(a).filter(s=>s.dia===ui.scheduleDay).map(s=>({a,slot:s}))).sort((x,y)=>x.slot.hora.localeCompare(y.slot.hora));return header('ESTÚDIO DE PIANO',data.settings?.teacherName?`Olá, ${data.settings.teacherName} 👋`:'Sua semana',`<button class="top-button profile-shortcut profile-thumbnail" data-profile-settings aria-label="Editar perfil do professor">${profileShortcutAvatar()}</button>`)+`<section class="welcome"><div><small>VISÃO DO DIA</small><h2>${today.length} ${today.length===1?'aula':'aulas'} hoje</h2><p>Sua rotina musical, organizada e tranquila.</p></div><span>♫</span></section><div class="summary home-summary"><button data-page="agenda"><b>▦</b><span><strong>${data.alunos.filter(a=>a.ativo!==false).length}</strong><small>Alunos ativos na semana</small></span>›</button><button data-page="acervo"><b>♫</b><span><strong>${data.repertorio.length}</strong><small>Peças no repertório</small></span>›</button></div><div class="section-title"><div><small>${esc(ui.scheduleDay.toUpperCase())}</small><h2>Próximas aulas</h2></div><button data-page="agenda">Ver agenda</button></div><div class="rows">${today.length?today.map(x=>studentRow(x.a,x.slot)).join(''):'<p class="empty">Nenhuma aula neste dia.</p>'}</div>`}
@@ -342,7 +361,7 @@ function validateBackupDocument(documentData){if(!documentData||typeof documentD
 function backupSummary(backupData){const students=backupData.alunos||[];return {active:students.filter(student=>student.ativo!==false).length,former:students.filter(student=>student.ativo===false).length,classes:(backupData.classRecords||[]).length,payments:(backupData.pagamentos||[]).length,books:(backupData.livros||[]).length,repertoire:(backupData.repertorio||[]).length}}
 function openBackupRestoreConfirmation(documentData,file){const importedData=photoFreeClone(documentData.data),summary=backupSummary(importedData),exported=formatBackupDate(documentData.exportedAt);modalShell('Restaurar backup',`<div class="backup-file"><i>↑</i><span><b>${esc(file.name)}</b><small>${esc(formatFileSize(file.size))} · exportado em ${esc(exported)}</small></span></div><div class="backup-summary"><span><b>${summary.active}</b><small>Alunos ativos</small></span><span><b>${summary.former}</b><small>Ex-alunos</small></span><span><b>${summary.classes}</b><small>Aulas salvas</small></span><span><b>${summary.payments}</b><small>Pagamentos</small></span><span><b>${summary.books}</b><small>Livros</small></span><span><b>${summary.repertoire}</b><small>Repertórios</small></span></div><div class="restore-warning"><b>Os cadastros atuais serão substituídos. O histórico de recebimentos será preservado.</b><p>Antes disso, o Compasso baixará um backup de segurança. As fotos não fazem parte dos backups e serão removidas.</p></div>`);$('.modal .save').textContent='Restaurar dados';$('.modal').onsubmit=event=>{event.preventDefault();downloadBackup({prefix:'compasso-backup-antes-restauracao',updateTimestamp:false,withTime:true});const previousData=data;try{const restored=migrate(photoFreeClone(importedData));restored.classRecords=Array.isArray(restored.classRecords)?restored.classRecords:[];restored.settings={teacherName:'',schoolName:'',...(restored.settings||{}),lastImportAt:new Date().toISOString()};restored.demoEligible=false;restored.demoKurtSeyit=true;preservePaymentHistory(restored,previousData);data=restored;migrateAcademicLinks();cleanOptionalBooks();if(!save()){data=previousData;showDuplicate('Não foi possível salvar o backup restaurado. Seus dados atuais foram mantidos.');delete $('.modal').dataset.committing;return}}catch(error){data=previousData;showDuplicate('Não foi possível restaurar este arquivo. Seus dados atuais foram mantidos.');delete $('.modal').dataset.committing;return}ui={...ui,page:'inicio',selectedStudent:null,selectedItem:null,selectedPayment:null,selectedClass:null,search:'',paymentMonth:0,moneyVisible:false,agendaView:'week',agendaMonth:0,showGoners:false};closeModal(true);toast('Backup restaurado com sucesso');render()}}
 async function readBackupFile(file){if(!file)return;if(file.size>BACKUP_MAX_BYTES){showDuplicate('O arquivo ultrapassa o limite de 10 MB. Escolha um backup válido do Compasso.');return}try{const documentData=validateBackupDocument(JSON.parse(await file.text()));closeModal(true);openBackupRestoreConfirmation(documentData,file)}catch(error){showDuplicate(error instanceof SyntaxError?'O arquivo não é um JSON válido.':error.message||'Não foi possível ler este backup.')}}
-function openProfileSettings(){let photoData=data.settings.foto||'';modalShell('Dados do professor',`${photoField('Foto do professor','f-photo',photoData)}${field('Seu nome','f-teacher','text',data.settings.teacherName||'','placeholder="Ex.: Alex Silva"')}${field('Nome da escola','f-school','text',data.settings.schoolName||'','placeholder="Ex.: Escola de Música Harmonia"')}<section class="backup-zone"><div class="backup-heading"><i>↕</i><span><b>Dados e backup</b><p>Salve uma cópia portátil dos cadastros, sem as fotos.</p></span></div><div class="backup-actions"><button type="button" class="backup-action" id="export-backup"><i>↓</i><span><b>Exportar</b><small>Criar arquivo</small></span></button><button type="button" class="backup-action" id="import-backup"><i>↑</i><span><b>Restaurar</b><small>Abrir backup</small></span></button></div><small class="backup-status" id="backup-status">${data.settings.lastBackupAt?`Último backup: ${esc(formatBackupDate(data.settings.lastBackupAt))}`:'Nenhum backup exportado'}</small><input id="backup-file" type="file" accept=".json,application/json" hidden></section><section class="erase-zone"><b>Apagar dados do aplicativo</b><p>Remove os cadastros e pagamentos sem recebimento. Mantém o perfil e o histórico de recebimentos.</p><button type="button" class="danger-action" id="open-erase-data">Apagar todos os dados</button></section><small class="app-version">Compasso ${APP_VERSION}</small>`);bindPhotoEditor('f-photo',photoData,file=>photoData=file);const persistProfile=()=>{data.settings.teacherName=$('#f-teacher').value.trim();data.settings.schoolName=$('#f-school').value.trim();data.settings.foto=photoData;return save()};$('#export-backup').onclick=()=>{if(!persistProfile())return;const result=downloadBackup();$('.modal').dataset.dirty='false';$('#backup-status').textContent=`Último backup: ${formatBackupDate(result.document.exportedAt)}`;toast(`Backup exportado · ${formatFileSize(result.size)}`)};$('#import-backup').onclick=()=>{
+function openProfileSettings(){let photoData=data.settings.foto||'';modalShell('Dados do professor',`${photoField('Foto do professor','f-photo',photoData)}${field('Seu nome','f-teacher','text',data.settings.teacherName||'','placeholder="Ex.: Alex Silva"')}${field('Nome da escola','f-school','text',data.settings.schoolName||'','placeholder="Ex.: Escola de Música Harmonia"')}<section class="backup-zone"><div class="backup-heading"><i>↕</i><span><b>Dados e backup</b><p>Salve uma cópia portátil dos cadastros, sem as fotos.</p></span></div><div class="backup-actions"><button type="button" class="backup-action" id="export-backup"><i>↓</i><span><b>Exportar</b><small>Criar arquivo</small></span></button><button type="button" class="backup-action" id="import-backup"><i>↑</i><span><b>Restaurar</b><small>Abrir backup</small></span></button></div><small class="backup-status" id="backup-status">${data.settings.lastBackupAt?`Último backup: ${esc(formatBackupDate(data.settings.lastBackupAt))}`:'Nenhum backup exportado'}</small><input id="backup-file" type="file" accept=".json,application/json" hidden></section><section class="erase-zone"><b>Apagar dados do aplicativo</b><p>Apaga alunos, acervo, aulas, pagamentos e históricos. Mantém apenas o perfil do professor.</p><button type="button" class="danger-action" id="open-erase-data">Apagar todos os dados</button></section><small class="app-version">Compasso ${APP_VERSION}</small>`);const profileSave=$('.modal>.save');profileSave.textContent='Salvar perfil';profileSave.classList.add('profile-save');$('#f-school').closest('label').insertAdjacentElement('afterend',profileSave);bindPhotoEditor('f-photo',photoData,file=>photoData=file);const persistProfile=()=>{data.settings.teacherName=$('#f-teacher').value.trim();data.settings.schoolName=$('#f-school').value.trim();data.settings.foto=photoData;return save()};$('#export-backup').onclick=()=>{if(!persistProfile())return;const result=downloadBackup();$('.modal').dataset.dirty='false';$('#backup-status').textContent=`Último backup: ${formatBackupDate(result.document.exportedAt)}`;toast(`Backup exportado · ${formatFileSize(result.size)}`)};$('#import-backup').onclick=()=>{
   const chooseFile=()=>$('#backup-file').click();
   if($('.modal').dataset.dirty!=='true'){chooseFile();return}
   showActionDialog({
@@ -689,8 +708,9 @@ openProfileSettings=function(){
   bindCloudPanel();
 };
 window.addEventListener('compasso-cloud-state',()=>{
-  const zone=$('[data-cloud-zone]');if(!zone)return;
-  zone.outerHTML=cloudPanelMarkup();bindCloudPanel();
+  const zone=$('[data-cloud-zone]');
+  if(zone){zone.outerHTML=cloudPanelMarkup();bindCloudPanel()}
+  handleOnboardingCloudState();
 });
 window.addEventListener('compasso-cloud-restore',event=>{
   const {backup,resolve,reject}=event.detail;
@@ -708,7 +728,7 @@ window.addEventListener('compasso-cloud-restore',event=>{
   }catch(error){reject?.(error);}
 });
 
-// Isolated tutorial workspace and first-use onboarding (v1.1.21)
+// Isolated tutorial workspace and first-use onboarding (v1.1.22)
 function demoBanner(){return `<div class="demo-banner"><span><b>Modo demonstração</b><small>Explore à vontade. Nada daqui será enviado à nuvem ou misturado aos seus dados.</small></span><button type="button" data-exit-demo>Sair</button></div>`}
 function resetWorkspaceUi(){ui={...ui,page:'inicio',selectedStudent:null,selectedItem:null,selectedPayment:null,selectedClass:null,search:'',paymentMonth:0,moneyVisible:false,agendaView:'week',agendaMonth:0,showGoners:false}}
 function runtimeFromStored(raw){return schemaV2Engine?schemaV2Engine.hydrate(raw?.schemaVersion===2?raw:schemaV2Engine.fromLegacy(raw||{})):migrate(raw)}
@@ -716,21 +736,72 @@ async function enterDemoMode(){
   try{
     const response=await fetch('demo-data.json',{cache:'no-store'});if(!response.ok)throw new Error('Não foi possível abrir a demonstração.');
     const example=await response.json();if(!Array.isArray(example.alunos))throw new Error('A demonstração está danificada.');
-    demoMode=true;localStorage.setItem(DEMO_ACTIVE_KEY,'true');localStorage.setItem(ONBOARDING_KEY,'true');
+    demoMode=true;localStorage.setItem(DEMO_ACTIVE_KEY,'true');sessionStorage.removeItem(ONBOARDING_AUTH_KEY);
     data=runtimeFromStored(example);lastSavedState=structuredClone(data);if(!save())throw new Error('Não foi possível preparar a demonstração.');
     $('.onboarding-back')?.remove();closeModal(true);resetWorkspaceUi();render();toast('Demonstração aberta');
   }catch(error){demoMode=false;localStorage.removeItem(DEMO_ACTIVE_KEY);localStorage.removeItem(DEMO_STORAGE_KEY);const raw=localStorage.getItem(STORAGE_KEY)||localStorage.getItem(OLD_STORAGE_KEY);data=runtimeFromStored(JSON.parse(raw||'null'));lastSavedState=structuredClone(data);toast(error?.message||'Não foi possível abrir a demonstração.');throw error}
 }
 function exitDemoMode(){
   demoMode=false;localStorage.removeItem(DEMO_ACTIVE_KEY);localStorage.removeItem(DEMO_STORAGE_KEY);
-  const raw=localStorage.getItem(STORAGE_KEY)||localStorage.getItem(OLD_STORAGE_KEY);data=runtimeFromStored(JSON.parse(raw||'null'));lastSavedState=structuredClone(data);resetWorkspaceUi();render();toast('Seus dados reais estão de volta');
+  const raw=localStorage.getItem(STORAGE_KEY)||localStorage.getItem(OLD_STORAGE_KEY);data=runtimeFromStored(JSON.parse(raw||'null'));lastSavedState=structuredClone(data);resetWorkspaceUi();render();
+  if(localStorage.getItem(ONBOARDING_KEY)==='pending'){openOnboarding();toast('Escolha como deseja começar')}
+  else toast('Seus dados reais estão de volta');
 }
 function confirmExitDemoMode(){showActionDialog({title:'Sair da demonstração?',message:'As alterações feitas no exemplo serão descartadas. Seus dados reais permanecem intactos.',actions:[{label:'Sair da demonstração',run:exitDemoMode},{label:'Continuar explorando',tone:'neutral'}]})}
+let onboardingCloudBusy=false;
+function onboardingCloudMessage(title,message,action=''){
+  const area=$('[data-onboarding-cloud-state]');if(!area)return;
+  area.hidden=false;area.innerHTML=`<b>${esc(title)}</b><small>${esc(message)}</small>${action}`;
+}
+function completeCloudOnboarding(message){
+  localStorage.setItem(ONBOARDING_KEY,'true');sessionStorage.removeItem(ONBOARDING_AUTH_KEY);onboardingCloudBusy=false;
+  $('.onboarding-back')?.remove();resetWorkspaceUi();render();toast(message);
+}
+async function waitForCompassoCloud(){
+  for(let attempt=0;attempt<50;attempt++){if(window.CompassoCloud)return window.CompassoCloud;await new Promise(resolve=>setTimeout(resolve,100))}
+  throw new Error('O acesso ao Google ainda não ficou disponível. Verifique sua conexão e tente novamente.');
+}
+function bindOnboardingCloudAction(selector,action){
+  const button=$(selector);if(!button)return;
+  button.onclick=async()=>{button.disabled=true;try{await action()}catch(error){onboardingCloudBusy=false;onboardingCloudMessage('Não foi possível continuar',error?.message||'Confira sua conexão e tente novamente.',`<button type="button" data-onboarding-retry>Tentar novamente</button>`);bindOnboardingCloudAction('[data-onboarding-retry]',()=>window.CompassoCloud?.retry?.())}finally{if(button.isConnected)button.disabled=false}};
+}
+function handleOnboardingCloudState(){
+  if(localStorage.getItem(ONBOARDING_KEY)!=='pending'||sessionStorage.getItem(ONBOARDING_AUTH_KEY)!=='true'||!$('.onboarding-back'))return;
+  const cloud=window.CompassoCloud?.state;if(!cloud||!cloud.ready){onboardingCloudMessage('Preparando o acesso…','Aguarde só um instante.');return}
+  if(!cloud.user){onboardingCloudMessage('Entre com sua conta Google','Uma janela segura do Google será aberta.');return}
+  const account=cloud.user.displayName||cloud.user.email||'sua conta Google';
+  if(cloud.checkState==='checking'){onboardingCloudMessage('Procurando seus dados…',account);return}
+  if(cloud.checkState==='error'){
+    onboardingCloudMessage('Não foi possível consultar a nuvem',cloud.status||'Confira sua conexão e tente novamente.',`<button type="button" data-onboarding-retry>Tentar novamente</button>`);
+    bindOnboardingCloudAction('[data-onboarding-retry]',()=>window.CompassoCloud.retry());return;
+  }
+  if(cloud.checkState==='missing'){
+    onboardingCloudMessage('Criando seu espaço…','Esta será a primeira cópia protegida da sua conta.');
+    if(onboardingCloudBusy)return;onboardingCloudBusy=true;
+    window.CompassoCloud.uploadCurrent().then(()=>completeCloudOnboarding('Seu espaço foi criado e já está sincronizado')).catch(error=>{onboardingCloudBusy=false;onboardingCloudMessage('Não foi possível criar seu espaço',error?.message||'Confira sua conexão e tente novamente.',`<button type="button" data-onboarding-retry>Tentar novamente</button>`);bindOnboardingCloudAction('[data-onboarding-retry]',handleOnboardingCloudState)});return;
+  }
+  if(cloud.checkState==='available'&&cloud.syncEnabled){completeCloudOnboarding('Dados conectados à sua conta Google');return}
+  if(cloud.checkState==='available'){
+    onboardingCloudMessage('Encontramos seus dados',`Há uma cópia do Compasso em ${account}.`,`<button type="button" data-onboarding-restore>Restaurar meus dados</button>`);
+    bindOnboardingCloudAction('[data-onboarding-restore]',()=>window.CompassoCloud.restore());
+  }
+}
+async function startOnboardingGoogle(button){
+  sessionStorage.setItem(ONBOARDING_AUTH_KEY,'true');button.disabled=true;onboardingCloudMessage('Abrindo o Google…','Escolha a conta que protegerá seus dados.');
+  try{
+    const cloud=await waitForCompassoCloud();
+    if(cloud.state.user)handleOnboardingCloudState();else await cloud.signIn();
+    handleOnboardingCloudState();
+  }catch(error){
+    sessionStorage.removeItem(ONBOARDING_AUTH_KEY);onboardingCloudBusy=false;button.disabled=false;
+    onboardingCloudMessage(error?.code==='auth/popup-closed-by-user'?'Entrada cancelada':'Não foi possível entrar',error?.code==='auth/popup-closed-by-user'?'Você pode tentar novamente ou explorar a demonstração.':error?.message||'Confira sua conexão e tente novamente.');
+  }
+}
 function openOnboarding(){
   if(document.querySelector('.onboarding-back'))return;
-  document.body.insertAdjacentHTML('beforeend',`<div class="onboarding-back"><section class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboarding-title"><div class="onboarding-mark">C</div><small>COMPASSO</small><h2 id="onboarding-title">Seu estúdio começa aqui</h2><p>Organize alunos, aulas, repertório e pagamentos do seu jeito.</p><div class="onboarding-actions"><button type="button" class="onboarding-primary" data-onboarding-cloud><i>☁</i><span><b>Entrar e recuperar dados</b><small>Use uma cópia da sua conta Google</small></span></button><button type="button" data-onboarding-empty><i>＋</i><span><b>Começar do zero</b><small>Abra um espaço real e vazio</small></span></button><button type="button" data-onboarding-demo><i>♫</i><span><b>Explorar demonstração</b><small>Conheça o Compasso sem misturar dados</small></span></button></div></section></div>`);
-  $('[data-onboarding-empty]').onclick=()=>{localStorage.setItem(ONBOARDING_KEY,'true');$('.onboarding-back')?.remove();toast('Espaço pronto para começar')};
-  $('[data-onboarding-cloud]').onclick=()=>{localStorage.setItem(ONBOARDING_KEY,'true');$('.onboarding-back')?.remove();openProfileSettings()};
+  document.body.insertAdjacentHTML('beforeend',`<div class="onboarding-back"><section class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboarding-title"><div class="onboarding-mark">C</div><small>COMPASSO</small><h2 id="onboarding-title">Seu estúdio começa aqui</h2><p>Entre com o Google para salvar seus dados ou conheça o aplicativo com um exemplo separado.</p><div class="onboarding-actions"><button type="button" class="onboarding-primary" data-onboarding-cloud><i>G</i><span><b>Continuar com Google</b><small>Crie ou recupere seu espaço sincronizado</small></span></button><button type="button" data-onboarding-demo><i>♫</i><span><b>Explorar demonstração</b><small>Teste à vontade sem misturar dados</small></span></button></div><div class="onboarding-cloud-state" data-onboarding-cloud-state hidden></div></section></div>`);
+  $('[data-onboarding-cloud]').onclick=event=>startOnboardingGoogle(event.currentTarget);
   $('[data-onboarding-demo]').onclick=event=>{event.currentTarget.disabled=true;event.currentTarget.querySelector('small').textContent='Preparando exemplo…';enterDemoMode().catch(()=>{if(event.currentTarget?.isConnected){event.currentTarget.disabled=false;event.currentTarget.querySelector('small').textContent='Conheça o Compasso sem misturar dados'}})};
+  if(sessionStorage.getItem(ONBOARDING_AUTH_KEY)==='true')handleOnboardingCloudState();
 }
 if(localStorage.getItem(ONBOARDING_KEY)==='pending'&&!demoMode)setTimeout(openOnboarding,0);
