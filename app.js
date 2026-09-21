@@ -4,7 +4,7 @@ const DEMO_STORAGE_KEY = 'compasso-demo-v1';
 const DEMO_ACTIVE_KEY = 'compasso-demo-active';
 const ONBOARDING_KEY = 'compasso-onboarding-complete-v1';
 const ONBOARDING_AUTH_KEY = 'compasso-onboarding-google-pending';
-const APP_VERSION = '1.1.22';
+const APP_VERSION = '1.1.24';
 const COLORS = ['#668981','#d47c63','#7973a5','#c0924e','#b36d83','#5683a0','#648c88'];
 const DAYS = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const STAGES = ['Em espera','Aprendendo','Executando'];
@@ -377,6 +377,7 @@ function openProfileSettings(){let photoData=data.settings.foto||'';modalShell('
 // Student contact, profile-managed books and reusable photo crops (v1.1.6)
 function cropPercent(value){const number=Number(value);return Number.isFinite(number)?Math.max(0,Math.min(100,number)):50}
 function whatsappDigits(contact){const raw=String(contact||'').trim(),explicitCountry=raw.startsWith('+');let digits=raw.replace(/\D/g,'');if(digits.startsWith('0'))digits=digits.slice(1);if(!explicitCountry&&(digits.length===10||digits.length===11))digits=`55${digits}`;return digits.length>=8?digits:''}
+function whatsappHref(digits,userAgent=navigator.userAgent){const web=`https://wa.me/${digits}`;return /Android/i.test(userAgent)?`intent://send?phone=${digits}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${encodeURIComponent(web)};end`:web}
 function openStudentModal(studentId){
   const existing=data.alunos.find(student=>String(student.id)===String(studentId));
   const slots=existing?.aulas?.length?existing.aulas:[{dia:'Segunda',hora:'10:00',duracao:50,criadoEm:todayISO()}];
@@ -460,7 +461,7 @@ studentProfile=function(){const student=data.alunos.find(item=>item.id===ui.sele
 function photoStyle(photo){const value=typeof photo==='string'?{src:photo}:photo||{},zoom=Math.max(100,Math.min(340,Number(value.zoom)||100)),x=cropPercent(value.x),y=cropPercent(value.y),size=value.fit==='height'?`auto ${zoom}%`:`${zoom}% auto`;return `background-image:url('${value.src||''}');background-size:${size};background-position:${x}% ${y}%`}
 function openCropper(photo,onSave,shape=requestedCropShape){const current=typeof photo==='string'?{src:photo}:photo||{},src=current.src||'',frameRatio=shape==='cover'?48/58:1;let zoom=Math.max(100,Math.min(340,Number(current.zoom)||100)),x=cropPercent(current.x),y=cropPercent(current.y),fit=current.shape===shape&&(current.fit==='height'||current.fit==='width')?current.fit:'',start=null;document.body.insertAdjacentHTML('beforeend',`<div class="modal-back crop-back"><section class="modal crop-modal"><small>FOTO</small><h2>Ajustar miniatura</h2><p>Segure e arraste a foto na mesma direção do dedo.</p><div class="crop-stage crop-stage-${shape}"><div class="crop-frame crop-${shape}"><img class="crop-loader" src="${esc(src)}" alt=""></div></div><label>Aproximação<input class="crop-zoom" type="range" min="100" max="340" value="${zoom}"></label><div class="crop-actions"><button type="button" class="close-crop">Cancelar</button><button type="button" class="save crop-save">Usar foto</button></div></section></div>`);const back=$('.crop-back'),stage=$('.crop-stage',back),frame=$('.crop-frame',stage),loader=$('.crop-loader',frame),slider=$('.crop-zoom',back),geometry=()=>{const ratio=loader.naturalWidth&&loader.naturalHeight?loader.naturalWidth/loader.naturalHeight:frameRatio,fw=frame.clientWidth||220,fh=frame.clientHeight||220,scale=zoom/100,baseWidth=fit==='height'?fh*ratio:fw,baseHeight=fit==='height'?fh:fw/ratio;return {fw,fh,imageWidth:baseWidth*scale,imageHeight:baseHeight*scale}},paint=()=>{if(fit)frame.setAttribute('style',photoStyle({src,zoom,x,y,fit}))};slider.oninput=()=>{zoom=Number(slider.value);paint()};stage.onpointerdown=event=>{start={px:event.clientX,py:event.clientY,x,y};stage.classList.add('is-dragging');stage.setPointerCapture?.(event.pointerId)};stage.onpointermove=event=>{if(!start)return;const {fw,fh,imageWidth,imageHeight}=geometry(),overflowX=imageWidth-fw,overflowY=imageHeight-fh,deltaX=event.clientX-start.px,deltaY=event.clientY-start.py;if(overflowX>.5)x=Math.max(0,Math.min(100,start.x-deltaX/overflowX*100));if(overflowY>.5)y=Math.max(0,Math.min(100,start.y-deltaY/overflowY*100));paint()};stage.onpointerup=stage.onpointercancel=()=>{start=null;stage.classList.remove('is-dragging')};$('.close-crop',back).onclick=()=>back.remove();$('.crop-save',back).onclick=()=>{onSave({src,zoom,x,y,fit:fit||'width',shape});back.remove();toast('Miniatura ajustada')};loader.onload=()=>{if(!fit)fit=loader.naturalWidth/loader.naturalHeight>=frameRatio?'height':'width';paint()};if(loader.complete)loader.onload()}
 function formatContactNumber(contact){const raw=String(contact||'').trim();if(!raw)return '';let digits=raw.replace(/\D/g,'');if(digits.startsWith('0')&&(digits.length===11||digits.length===12))digits=digits.slice(1);let country='';if(digits.startsWith('55')&&(digits.length===12||digits.length===13)){country='+55 ';digits=digits.slice(2)}if(digits.length===11)return `${country}(${digits.slice(0,2)}) ${digits.slice(2,7)}-${digits.slice(7)}`;if(digits.length===10)return `${country}(${digits.slice(0,2)}) ${digits.slice(2,6)}-${digits.slice(6)}`;if(digits.length===9)return `${digits.slice(0,5)}-${digits.slice(5)}`;if(digits.length===8)return `${digits.slice(0,4)}-${digits.slice(4)}`;return raw}
-function whatsappContact(student){const contact=String(student.contato||'').trim();if(!contact)return '';const digits=whatsappDigits(contact),button=digits?`<a class="whatsapp-contact whatsapp-contact-compact" href="https://wa.me/${digits}" target="_blank" rel="noopener noreferrer" aria-label="Conversar com ${esc(student.nome)} no WhatsApp" title="WhatsApp"><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 11.8a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.3-4.3a8.5 8.5 0 1 1 15.7-4.4Z"/><path d="M8.2 7.6c.2-.4.5-.4.8-.4h.5c.2 0 .4.1.5.4l.8 2c.1.3.1.5-.1.7l-.6.8c-.2.2-.1.5.1.8.7 1.2 1.7 2.1 3 2.7.3.2.6.1.8-.1l.9-1.1c.2-.2.4-.3.7-.2l2 .9c.3.1.4.3.4.6 0 .4-.2 1.3-.8 1.8-.6.6-1.5.9-2.4.7-1.1-.2-2.8-.8-4.7-2.4-1.6-1.4-2.7-3.1-3-4.3-.3-1.1 0-2.1.5-2.7l.6-.2Z"/></svg></i></a>`:'';return `<div class="student-profile-contact"><span class="student-profile-contact-copy"><small>CONTATO</small><b>${esc(formatContactNumber(contact))}</b></span>${button}</div>`}
+function whatsappContact(student){const contact=String(student.contato||'').trim();if(!contact)return '';const digits=whatsappDigits(contact),android=/Android/i.test(navigator.userAgent),button=digits?`<a class="whatsapp-contact whatsapp-contact-compact" href="${whatsappHref(digits)}"${android?'':' target="_blank" rel="noopener noreferrer"'} aria-label="Conversar com ${esc(student.nome)} no WhatsApp Messenger" title="WhatsApp"><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 11.8a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.3-4.3a8.5 8.5 0 1 1 15.7-4.4Z"/><path d="M8.2 7.6c.2-.4.5-.4.8-.4h.5c.2 0 .4.1.5.4l.8 2c.1.3.1.5-.1.7l-.6.8c-.2.2-.1.5.1.8.7 1.2 1.7 2.1 3 2.7.3.2.6.1.8-.1l.9-1.1c.2-.2.4-.3.7-.2l2 .9c.3.1.4.3.4.6 0 .4-.2 1.3-.8 1.8-.6.6-1.5.9-2.4.7-1.1-.2-2.8-.8-4.7-2.4-1.6-1.4-2.7-3.1-3-4.3-.3-1.1 0-2.1.5-2.7l.6-.2Z"/></svg></i></a>`:'';return `<div class="student-profile-contact"><span class="student-profile-contact-copy"><small>CONTATO</small><b>${esc(formatContactNumber(contact))}</b></span>${button}</div>`}
 
 // Open a newly created student immediately (v1.1.11)
 const openStudentModalBeforeAutoOpen=openStudentModal;
@@ -685,7 +686,16 @@ function cloudPanelMarkup(){
 function bindCloudPanel(){
   const zone=$('[data-cloud-zone]');if(!zone)return;
   const run=async(action)=>{try{await action()}catch(error){toast(error?.message||'Não foi possível concluir agora.')}};
-  $('[data-cloud-sign-in]',zone)?.addEventListener('click',()=>run(()=>window.CompassoCloud.signIn()));
+  $('[data-cloud-sign-in]',zone)?.addEventListener('click',()=>run(async()=>{
+    await window.CompassoCloud.signIn();
+    const cloud=window.CompassoCloud.state;
+    if(cloud.checkState==='missing'){
+      await window.CompassoCloud.uploadCurrent();
+      toast(`Conta conectada · primeira cópia salva para ${cloud.user?.displayName||cloud.user?.email||'sua conta Google'}`);
+    }else if(cloud.checkState==='available'&&cloud.syncEnabled)toast('Conta Google conectada · sincronização ativa');
+    else if(cloud.checkState==='available')toast('Conta conectada · encontramos uma cópia na nuvem');
+    else if(cloud.checkState==='error')toast(cloud.status);
+  }));
   $('[data-cloud-retry]',zone)?.addEventListener('click',()=>run(()=>window.CompassoCloud.retry()));
   $('[data-cloud-upload]',zone)?.addEventListener('click',()=>{
     const cloud=window.CompassoCloud.state;
@@ -696,11 +706,37 @@ function bindCloudPanel(){
   $('[data-cloud-sign-out]',zone)?.addEventListener('click',()=>run(async()=>{await window.CompassoCloud.signOut();toast('Conta desconectada')}));
   $('[data-cloud-restore]',zone)?.addEventListener('click',()=>showActionDialog({title:'Restaurar dados da nuvem?',message:'Os cadastros deste aparelho serão substituídos pela cópia da sua conta Google. As fotos não fazem parte da nuvem.',actions:[{label:'Restaurar cópia',tone:'danger',run:()=>run(()=>window.CompassoCloud.restore())},{label:'Voltar',tone:'neutral'}]}));
 }
+async function forceAppRefresh(){
+  if(!navigator.onLine){toast('Conecte-se à internet para buscar uma nova versão');return}
+  try{
+    const stamp=Date.now();
+    const probe=await fetch(`index.html?compasso-update=${stamp}`,{cache:'no-store'});if(!probe.ok)throw new Error('offline');
+    const registration=await navigator.serviceWorker?.getRegistration?.();
+    await registration?.unregister?.();
+    if('caches' in window){const keys=await caches.keys();await Promise.all(keys.filter(key=>key.startsWith('compasso-static-')).map(key=>caches.delete(key)))}
+    sessionStorage.setItem('compasso-refresh-notice',APP_VERSION);
+    const modal=$('.modal');if(modal)modal.dataset.committing='true';
+    const url=new URL(location.href);url.searchParams.set('compasso-update',String(stamp));location.replace(url.toString());
+  }catch(error){toast('Não foi possível buscar a nova versão. Confira sua conexão e tente novamente.')}
+}
+function confirmAppRefresh(){
+  showActionDialog({title:'Buscar a versão mais recente?',message:'O Compasso será fechado e aberto novamente. Seus alunos, pagamentos, fotos e login não serão apagados.',actions:[{label:'Atualizar agora',run:forceAppRefresh},{label:'Voltar',tone:'neutral'}]});
+}
+function requestAppRefresh(){
+  const modal=$('.modal');
+  if(modal?.dataset.dirty==='true'){
+    showActionDialog({title:'Salvar o perfil antes de atualizar?',message:'Há alterações no nome, escola ou foto que ainda não foram salvas.',actions:[{label:'Salvar e atualizar',run:()=>{modal.requestSubmit();if(!modal.isConnected)confirmAppRefresh()}},{label:'Atualizar sem salvar',tone:'danger',run:confirmAppRefresh}]});return;
+  }
+  confirmAppRefresh();
+}
 const openProfileSettingsBeforeCloud=openProfileSettings;
 openProfileSettings=function(){
   openProfileSettingsBeforeCloud();
   const backup=$('.backup-zone');
   if(!backup)return;
+  const updateTarget=$('.erase-zone')||$('.app-version');
+  updateTarget?.insertAdjacentHTML('beforebegin',`<section class="update-zone"><div><i>↻</i><span><b>Atualização do aplicativo</b><p>Busque a versão mais recente sem apagar seus dados.</p></span></div><button type="button" data-hard-refresh>Buscar atualização</button></section>`);
+  $('[data-hard-refresh]')?.addEventListener('click',requestAppRefresh);
   if(demoMode){backup.insertAdjacentHTML('beforebegin','<section class="demo-profile-note"><b>Modo demonstração</b><p>Backup, importação e nuvem ficam desativados neste espaço. Seus dados reais continuam separados.</p><button type="button" data-exit-demo>Sair da demonstração</button></section>');backup.remove();$('.erase-zone')?.remove();$('[data-exit-demo]')?.addEventListener('click',confirmExitDemoMode);return}
   backup.insertAdjacentHTML('beforebegin','<section class="tutorial-zone"><span><b>Conhecer o Compasso</b><p>Explore um exemplo separado, sem alterar seus cadastros.</p></span><button type="button" data-enter-demo>Ver demonstração</button></section>');
   $('[data-enter-demo]')?.addEventListener('click',()=>{if(closeModal(false,enterDemoMode))enterDemoMode()});
@@ -728,7 +764,7 @@ window.addEventListener('compasso-cloud-restore',event=>{
   }catch(error){reject?.(error);}
 });
 
-// Isolated tutorial workspace and first-use onboarding (v1.1.22)
+// Isolated tutorial workspace and first-use onboarding (v1.1.23)
 function demoBanner(){return `<div class="demo-banner"><span><b>Modo demonstração</b><small>Explore à vontade. Nada daqui será enviado à nuvem ou misturado aos seus dados.</small></span><button type="button" data-exit-demo>Sair</button></div>`}
 function resetWorkspaceUi(){ui={...ui,page:'inicio',selectedStudent:null,selectedItem:null,selectedPayment:null,selectedClass:null,search:'',paymentMonth:0,moneyVisible:false,agendaView:'week',agendaMonth:0,showGoners:false}}
 function runtimeFromStored(raw){return schemaV2Engine?schemaV2Engine.hydrate(raw?.schemaVersion===2?raw:schemaV2Engine.fromLegacy(raw||{})):migrate(raw)}
@@ -805,3 +841,4 @@ function openOnboarding(){
   if(sessionStorage.getItem(ONBOARDING_AUTH_KEY)==='true')handleOnboardingCloudState();
 }
 if(localStorage.getItem(ONBOARDING_KEY)==='pending'&&!demoMode)setTimeout(openOnboarding,0);
+if(typeof sessionStorage!=='undefined'&&sessionStorage.getItem('compasso-refresh-notice')){sessionStorage.removeItem('compasso-refresh-notice');const url=new URL(location.href);url.searchParams.delete('compasso-update');history.replaceState(null,'',`${url.pathname}${url.search}${url.hash}`);setTimeout(()=>toast(`Compasso ${APP_VERSION} carregado`),250)}

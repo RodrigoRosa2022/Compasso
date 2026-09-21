@@ -12,6 +12,7 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 const provider = new firebase.auth.GoogleAuthProvider();
+const authPersistenceReady = auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 const SYNC_USER_KEY = 'compasso-cloud-sync-user';
 let state = { ready: false, user: null, hasCloudCopy: null, checkState: 'idle', syncEnabled: false, status: '' };
 let pendingBackup = null;
@@ -22,8 +23,12 @@ function emit() {
 function teacherDoc() {
   return state.user ? db.collection('teachers').doc(state.user.uid) : null;
 }
-function mobileOrInstalled() {
-  return matchMedia('(display-mode: standalone)').matches || matchMedia('(pointer: coarse)').matches;
+function friendlyAuthError(error) {
+  if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') return 'Entrada com Google cancelada.';
+  if (error?.code === 'auth/popup-blocked') return 'O Google não conseguiu abrir. Permita janelas do Compasso e tente novamente.';
+  if (error?.code === 'auth/unauthorized-domain') return 'Este endereço do Compasso ainda não foi autorizado no Firebase.';
+  if (!navigator.onLine) return 'Sem conexão com a internet. Conecte-se e tente novamente.';
+  return 'Não foi possível entrar com Google. Tente novamente.';
 }
 async function refreshCloudState() {
   if (!state.user) return;
@@ -70,11 +75,17 @@ window.CompassoCloud = {
   async signIn() {
     state.status = 'Abrindo Google…'; emit();
     try {
-      if (mobileOrInstalled()) await auth.signInWithRedirect(provider);
-      else await auth.signInWithPopup(provider);
+      await authPersistenceReady;
+      const result = await auth.signInWithPopup(provider);
+      state = { ...state, ready: true, user: result.user, checkState: 'checking', status: 'Verificando a nuvem…' };
+      emit();
+      try { await refreshCloudState(); }
+      catch (error) { state.hasCloudCopy = null; state.checkState = 'error'; state.status = 'Conta conectada, mas não foi possível verificar a nuvem. Confira sua conexão e tente novamente.'; emit(); }
+      return result;
     } catch (error) {
-      state.status = error.code === 'auth/popup-closed-by-user' ? 'Entrada cancelada' : 'Não foi possível entrar com Google';
-      emit(); throw error;
+      const message = friendlyAuthError(error);
+      state.status = message;emit();
+      const friendly = new Error(message);friendly.code = error?.code;throw friendly;
     }
   },
   async signOut() { localStorage.removeItem(SYNC_USER_KEY); await auth.signOut(); },
