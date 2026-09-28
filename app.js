@@ -4,7 +4,7 @@ const DEMO_STORAGE_KEY = 'compasso-demo-v1';
 const DEMO_ACTIVE_KEY = 'compasso-demo-active';
 const ONBOARDING_KEY = 'compasso-onboarding-complete-v1';
 const ONBOARDING_AUTH_KEY = 'compasso-onboarding-google-pending';
-const APP_VERSION = '1.1.24';
+const APP_VERSION = '1.1.27';
 const COLORS = ['#668981','#d47c63','#7973a5','#c0924e','#b36d83','#5683a0','#648c88'];
 const DAYS = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const STAGES = ['Em espera','Aprendendo','Executando'];
@@ -380,6 +380,7 @@ function whatsappDigits(contact){const raw=String(contact||'').trim(),explicitCo
 function whatsappHref(digits,userAgent=navigator.userAgent){const web=`https://wa.me/${digits}`;return /Android/i.test(userAgent)?`intent://send?phone=${digits}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${encodeURIComponent(web)};end`:web}
 function openStudentModal(studentId){
   const existing=data.alunos.find(student=>String(student.id)===String(studentId));
+  if(!existing&&!canActivateStudent()){showStudentLimit();return}
   const slots=existing?.aulas?.length?existing.aulas:[{dia:'Segunda',hora:'10:00',duracao:50,criadoEm:todayISO()}];
   let photoData=existing?.foto||'';
   modalShell(existing?'Editar aluno':'Novo aluno',`${photoField('Foto do aluno','f-photo',photoData)}${field('Nome completo','f-name','text',existing?.nome||'','required')}${field('Contato (WhatsApp)','f-contact','tel',existing?.contato||'','inputmode="tel" autocomplete="tel" placeholder="(11) 99999-9999"')}${birthdayFields(existing?.nascimento||'')}${field('Data de início','f-since','date',existing?.desde||todayISO())}<div class="panel compact"><div class="panel-head"><h3>Horários fixos</h3><button type="button" id="add-slot">＋ Horário</button></div><div id="slot-list">${slots.map(slotMarkup).join('')}</div></div>${existing?`<div id="schedule-effective-wrap" hidden>${field('Aplicar horários a partir de','f-schedule-effective','date',todayISO(),'required')}</div>`:''}<div class="form-grid">${selectField('Plano','f-plan',['Mensal','Por aula'],existing?.plano||'Mensal')}${field('Valor combinado','f-value','number',existing?.valor||'', 'min="0" step="0.01"')}</div>${field('Observações','f-note','text',existing?.notas||'')}`);
@@ -405,6 +406,7 @@ function openStudentModal(studentId){
     if(student)Object.assign(student,values,{ini:initials(name),...(changed?{_scheduleEffectiveDate:effective}:{})});
     else{student={id,...values,livro:'',ini:initials(name),cor:COLORS[data.alunos.length%COLORS.length],ativo:true,livrosHistorico:[],musicas:[]};candidate.alunos.push(student)}
     const commit=()=>{
+      if(!existing&&!canActivateStudent()){showStudentLimit();return}
       const previous=data;data=candidate;
       if(!save()){data=previous;return}
       closeModal(true);ui.page='alunos';ui.selectedStudent=id;ui.selectedItem=null;ui.selectedPayment=null;ui.selectedClass=null;ui.search='';
@@ -605,6 +607,7 @@ stopStudent=function(studentId){
     $('.modal .save').textContent='Retomar aulas';
     $('.modal').onsubmit=event=>{
       event.preventDefault();const date=$('#f-resume-date').value;
+      if(!canActivateStudent()){showStudentLimit();return}
       const periods=structuredClone(student.enrollmentPeriods||[{startDate:student.desde,endDate:student.encerradoEm}]);
       const last=periods.at(-1);
       if(!date||date<todayISO()||(last?.endDate&&date<=last.endDate)){showDuplicate('Escolha uma data a partir de hoje e posterior ao encerramento.');return}
@@ -625,7 +628,10 @@ stopStudent=function(studentId){
     student.ativo=false;student.encerradoEm=end;
     data.classRecords=(data.classRecords||[]).filter(record=>String(record.studentId)!==String(student.id)||record.date<=end);
     data.pagamentos=(data.pagamentos||[]).filter(payment=>hasPaymentReceipt(payment)||String(payment.alunoId)!==String(student.id)||!payment.dueDate||payment.dueDate<=end);
-    if(!save()){data=before;return}
+    billingArchiveWrite=true;
+    let archived=false;
+    try{archived=save()}finally{billingArchiveWrite=false}
+    if(!archived){data=before;return}
     closeModal(true);toast('Aluno arquivado. Histórico de recebimentos preservado.');render();
   };
 };
@@ -667,11 +673,39 @@ function preservePaymentHistory(target,previous){
 // Private Google cloud copy (v1.1.20). Photos deliberately stay only on the device.
 window.CompassoCloudBackup=()=>demoMode?null:createBackupDocument();
 const saveBeforeCloud=save;
+let billingArchiveWrite=false;
 save=function(){
+  if(billingReadOnly()&&!billingArchiveWrite){restoreRuntime(data,lastSavedState);return false}
   const saved=saveBeforeCloud();
   if(saved&&!demoMode)window.CompassoCloud?.sync?.(createBackupDocument());
   return saved;
 };
+const FREE_STUDENT_LIMIT=5;
+function activeStudentCount(){return data.alunos.filter(student=>student.ativo!==false).length}
+function billingReadOnly(){const access=window.CompassoCloud?.state;return !demoMode&&activeStudentCount()>FREE_STUDENT_LIMIT&&['ready','error'].includes(access?.accessState)&&access.proSource==='google_play'&&!access.proAccess}
+function canActivateStudent(){return demoMode||!billingReadOnly()&&(activeStudentCount()<FREE_STUDENT_LIMIT||window.CompassoCloud?.state?.proAccess===true)}
+function showStudentLimit(){
+  const access=window.CompassoCloud?.state;
+  const message=access?.accessState==='checking'?'Aguarde a verificação do seu acesso Pro e tente novamente. Seus alunos existentes continuam disponíveis.':access?.accessState==='error'?'Não foi possível verificar o acesso Pro. Confira a conexão e use “Verificar acesso” em Dados do professor. Seus alunos existentes continuam disponíveis.':'O plano gratuito permite até 5 alunos ativos. Seus alunos e históricos continuam disponíveis; para cadastrar ou reativar mais alunos, será necessário o Pro.';
+  showActionDialog({title:'Limite de alunos ativos',message,actions:[{label:'Ver opções Pro',run:openProPlans},{label:'Agora não',tone:'neutral'}]});
+}
+function openProPlans(){
+  if($('.modal-back')){showActionDialog({title:'Compasso Pro',message:'Estão previstos planos mensal, semestral e anual pela Play Store. Cartão e Pix dependerão das opções oferecidas ao comprador. A contratação ainda não está disponível e seu cadastro não será apagado.',actions:[{label:'Voltar ao cadastro',tone:'neutral'}]});return}
+  modalShell('Compasso Pro',`<p class="pro-intro">Mais de 5 alunos ativos, com todos os seus dados preservados.</p><div class="pro-options"><div><b>Mensal</b><small>Renovação mensal pela Play Store</small></div><div><b>Semestral</b><small>6 meses pela Play Store</small></div><div><b>Anual</b><small>12 meses pela Play Store</small></div></div><p class="pro-pending">Cartão e Pix dependem das opções de pagamento oferecidas pela Play Store. A contratação ainda não está disponível; valores e pagamento aparecerão aqui quando a versão da Play Store estiver preparada.</p>`);
+  $('.modal').dataset.proPlans='true';
+  $('.modal .save').textContent='Voltar';
+  $('.modal').onsubmit=event=>{event.preventDefault();closeModal(true)};
+}
+function planPanelMarkup(){
+  const count=activeStudentCount(),access=window.CompassoCloud?.state,pro=access?.proAccess===true,locked=billingReadOnly();
+  const title=access?.complimentaryPro?'Compasso Pro · cortesia':pro?'Compasso Pro':locked?'Plano Pro encerrado':'Plano gratuito';
+  const detail=pro?`${count} ${count===1?'aluno ativo':'alunos ativos'} · sem limite de alunos`:locked?`${count} alunos ativos · arquive até ficar com 5 ou renove`:access?.accessState==='checking'?`Verificando acesso Pro · ${count} alunos ativos`:access?.accessState==='error'?`Não foi possível verificar o acesso Pro · ${count} alunos ativos`:`${count} de ${FREE_STUDENT_LIMIT} alunos ativos${count>FREE_STUDENT_LIMIT?' · cadastros existentes preservados':''}`;
+  return `<section class="plan-zone" data-plan-zone><div class="plan-heading"><i>♫</i><span><b>${title}</b><small>${detail}</small></span></div><div class="plan-actions">${!pro?'<button type="button" data-pro-options>Ver Pro</button>':''}${access?.user?'<button type="button" data-refresh-access>Verificar acesso</button>':''}</div></section>`;
+}
+function bindPlanPanel(){
+  $('[data-refresh-access]')?.addEventListener('click',async event=>{const button=event.currentTarget;button.disabled=true;try{await window.CompassoCloud.refreshAccess()}finally{if(button.isConnected)button.disabled=false}});
+  $('[data-pro-options]')?.addEventListener('click',openProPlans);
+}
 function cloudPanelMarkup(){
   const cloud=window.CompassoCloud?.state;
   if(!cloud)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Cópia na nuvem</b><p>Preparando proteção dos dados…</p></span></div></section>`;
@@ -679,9 +713,9 @@ function cloudPanelMarkup(){
   const account=cloud.user.displayName||cloud.user.email||'Conta Google';
   if(cloud.checkState==='checking')return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Verificando a nuvem…</b><p>${esc(account)}</p></span></div></section>`;
   if(cloud.checkState==='error')return `<section class="cloud-zone cloud-error" data-cloud-zone><div class="backup-heading"><i>!</i><span><b>Não foi possível verificar a nuvem</b><p>${esc(cloud.status)}</p></span></div><button type="button" class="cloud-action" data-cloud-retry>Tentar novamente</button><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
-  if(cloud.checkState==='missing')return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Proteja seus dados</b><p>Nenhuma cópia encontrada para ${esc(account)}.</p></span></div><button type="button" class="cloud-action" data-cloud-upload>Fazer primeira cópia</button><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
-  if(!cloud.syncEnabled)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Cópia na nuvem</b><p>${esc(cloud.status)} · ${esc(account)}</p></span></div><div class="cloud-actions"><button type="button" class="cloud-action" data-cloud-restore>Restaurar da nuvem</button><button type="button" class="cloud-secondary" data-cloud-upload>Usar dados deste aparelho</button></div><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
-  return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Dados protegidos na nuvem</b><p>${esc(cloud.status)} · ${esc(account)}</p></span></div><div class="cloud-actions"><button type="button" class="cloud-secondary" data-cloud-restore>Restaurar cópia</button><button type="button" class="cloud-secondary" data-cloud-upload>Salvar agora</button></div><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
+  if(cloud.checkState==='missing')return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Proteja seus dados</b><p>Nenhuma cópia encontrada para ${esc(account)}.</p></span></div><button type="button" class="cloud-action" data-cloud-upload>Enviar dados deste aparelho à nuvem</button><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
+  if(!cloud.syncEnabled)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Escolha qual cópia usar</b><p>${esc(account)}</p></span></div><div class="cloud-actions cloud-actions-choice"><button type="button" class="cloud-action" data-cloud-restore><b>Trazer dados da nuvem</b><small>Substitui os dados deste aparelho</small></button><button type="button" class="cloud-secondary" data-cloud-upload><b>Enviar dados deste aparelho</b><small>Substitui a cópia da nuvem</small></button></div><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
+  return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Dados protegidos na nuvem</b><p>${esc(cloud.status)} · ${esc(account)}</p></span></div><div class="cloud-actions cloud-actions-choice"><button type="button" class="cloud-secondary" data-cloud-restore><b>Trazer dados da nuvem</b><small>Substitui os dados deste aparelho</small></button><button type="button" class="cloud-secondary" data-cloud-upload><b>Enviar dados deste aparelho</b><small>Substitui a cópia da nuvem</small></button></div><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
 }
 function bindCloudPanel(){
   const zone=$('[data-cloud-zone]');if(!zone)return;
@@ -699,12 +733,11 @@ function bindCloudPanel(){
   $('[data-cloud-retry]',zone)?.addEventListener('click',()=>run(()=>window.CompassoCloud.retry()));
   $('[data-cloud-upload]',zone)?.addEventListener('click',()=>{
     const cloud=window.CompassoCloud.state;
-    const upload=()=>run(async()=>{await window.CompassoCloud.uploadCurrent();toast('Cópia salva na nuvem')});
-    if(cloud.hasCloudCopy&&!cloud.syncEnabled)showActionDialog({title:'Substituir a cópia da nuvem?',message:'A cópia desta conta será substituída pelos dados atuais deste aparelho. As fotos não são enviadas.',actions:[{label:'Usar dados deste aparelho',tone:'danger',run:upload},{label:'Voltar',tone:'neutral'}]});
-    else upload();
+    const upload=()=>run(async()=>{await window.CompassoCloud.uploadCurrent();toast('Dados deste aparelho enviados para a nuvem')});
+    showActionDialog({title:'Enviar dados deste aparelho para a nuvem?',message:'Os dados atualmente neste aparelho substituirão a cópia salva na conta Google. Os dados da nuvem que não estejam neste aparelho serão perdidos. As fotos não são enviadas.',actions:[{label:'Enviar para a nuvem',tone:'danger',run:upload},{label:'Voltar',tone:'neutral'}]});
   });
   $('[data-cloud-sign-out]',zone)?.addEventListener('click',()=>run(async()=>{await window.CompassoCloud.signOut();toast('Conta desconectada')}));
-  $('[data-cloud-restore]',zone)?.addEventListener('click',()=>showActionDialog({title:'Restaurar dados da nuvem?',message:'Os cadastros deste aparelho serão substituídos pela cópia da sua conta Google. As fotos não fazem parte da nuvem.',actions:[{label:'Restaurar cópia',tone:'danger',run:()=>run(()=>window.CompassoCloud.restore())},{label:'Voltar',tone:'neutral'}]}));
+  $('[data-cloud-restore]',zone)?.addEventListener('click',()=>showActionDialog({title:'Trazer dados da nuvem para este aparelho?',message:'A cópia da conta Google substituirá os dados atualmente salvos neste aparelho. Os dados locais que não estejam na nuvem serão perdidos. As fotos deste aparelho serão mantidas.',actions:[{label:'Trazer dados da nuvem',tone:'danger',run:()=>run(()=>window.CompassoCloud.restore())},{label:'Voltar',tone:'neutral'}]}));
 }
 async function forceAppRefresh(){
   if(!navigator.onLine){toast('Conecte-se à internet para buscar uma nova versão');return}
@@ -738,6 +771,8 @@ openProfileSettings=function(){
   updateTarget?.insertAdjacentHTML('beforebegin',`<section class="update-zone"><div><i>↻</i><span><b>Atualização do aplicativo</b><p>Busque a versão mais recente sem apagar seus dados.</p></span></div><button type="button" data-hard-refresh>Buscar atualização</button></section>`);
   $('[data-hard-refresh]')?.addEventListener('click',requestAppRefresh);
   if(demoMode){backup.insertAdjacentHTML('beforebegin','<section class="demo-profile-note"><b>Modo demonstração</b><p>Backup, importação e nuvem ficam desativados neste espaço. Seus dados reais continuam separados.</p><button type="button" data-exit-demo>Sair da demonstração</button></section>');backup.remove();$('.erase-zone')?.remove();$('[data-exit-demo]')?.addEventListener('click',confirmExitDemoMode);return}
+  backup.insertAdjacentHTML('beforebegin',planPanelMarkup());
+  bindPlanPanel();
   backup.insertAdjacentHTML('beforebegin','<section class="tutorial-zone"><span><b>Conhecer o Compasso</b><p>Explore um exemplo separado, sem alterar seus cadastros.</p></span><button type="button" data-enter-demo>Ver demonstração</button></section>');
   $('[data-enter-demo]')?.addEventListener('click',()=>{if(closeModal(false,enterDemoMode))enterDemoMode()});
   backup.insertAdjacentHTML('beforebegin',cloudPanelMarkup());
@@ -746,7 +781,10 @@ openProfileSettings=function(){
 window.addEventListener('compasso-cloud-state',()=>{
   const zone=$('[data-cloud-zone]');
   if(zone){zone.outerHTML=cloudPanelMarkup();bindCloudPanel()}
+  const plan=$('[data-plan-zone]');
+  if(plan){plan.outerHTML=planPanelMarkup();bindPlanPanel()}
   handleOnboardingCloudState();
+  syncBillingUi();
 });
 window.addEventListener('compasso-cloud-restore',event=>{
   const {backup,resolve,reject}=event.detail;
@@ -840,5 +878,45 @@ function openOnboarding(){
   $('[data-onboarding-demo]').onclick=event=>{event.currentTarget.disabled=true;event.currentTarget.querySelector('small').textContent='Preparando exemplo…';enterDemoMode().catch(()=>{if(event.currentTarget?.isConnected){event.currentTarget.disabled=false;event.currentTarget.querySelector('small').textContent='Conheça o Compasso sem misturar dados'}})};
   if(sessionStorage.getItem(ONBOARDING_AUTH_KEY)==='true')handleOnboardingCloudState();
 }
+const readOnlyExportOriginal=new WeakMap();
+function syncBillingUi(){
+  const content=$('.content');if(!content)return;
+  $('.billing-notice',content)?.remove();
+  const locked=billingReadOnly();
+  $$('[data-student-note],[data-item-note],[data-class-note],[data-payment-note]',content).forEach(field=>field.readOnly=locked);
+  if(!locked){const exportButton=$('#export-backup');if(exportButton&&readOnlyExportOriginal.has(exportButton)){exportButton.onclick=readOnlyExportOriginal.get(exportButton);readOnlyExportOriginal.delete(exportButton)}return}
+  content.insertAdjacentHTML('afterbegin',`<section class="billing-notice" role="status"><span><b>Plano Pro encerrado</b><small>Seus dados continuam disponíveis. Renove o Pro ou arquive alunos até restarem 5 ativos para voltar ao plano gratuito.</small></span><button type="button" data-billing-options>Ver opções</button></section>`);
+  $('[data-billing-options]',content).onclick=openProPlans;
+  bindReadOnlyExport();
+}
+function bindReadOnlyExport(){
+  const button=$('#export-backup');if(!button)return;
+  if(!readOnlyExportOriginal.has(button))readOnlyExportOriginal.set(button,button.onclick);
+  button.onclick=()=>{const result=downloadBackup({updateTimestamp:false});$('#backup-status').textContent=`Backup exportado: ${formatBackupDate(result.document.exportedAt)}`;toast(`Backup exportado · ${formatFileSize(result.size)}`)};
+}
+const renderBeforeBilling=render;
+render=function(){renderBeforeBilling();syncBillingUi()};
+document.addEventListener('click',event=>{
+  if(!billingReadOnly())return;
+  const target=event.target.closest('button');if(!target)return;
+  if(target.matches('[data-stop-student]')&&data.alunos.some(student=>String(student.id)===target.dataset.stopStudent&&student.ativo!==false))return;
+  const modal=target.closest('.modal');
+  const safeModalButton=target.matches('.modal-close,.archive-cancel,#export-backup,[data-refresh-access],[data-pro-options],[data-cloud-sign-out],[data-hard-refresh],[data-enter-demo]')||modal?.classList.contains('archive-modal')||modal?.dataset.proPlans==='true';
+  const blocked=target.matches('[data-modal],[data-edit-student],[data-edit-item],[data-assign-book],[data-assign-music],[data-book-status],[data-edit-book-link],[data-edit-music-link],[data-stage-student],[data-remove-music],[data-pay],[data-cancel-payment],[data-class-status],[data-reschedule],[data-stop-student],[data-cloud-upload],[data-cloud-restore]')||modal&&!safeModalButton;
+  if(!blocked)return;
+  event.preventDefault();event.stopImmediatePropagation();
+  showActionDialog({title:'Edição pausada',message:'O plano Pro terminou e há mais de 5 alunos ativos. Seus dados permanecem disponíveis. Você pode arquivar alunos até ficar com 5 ou renovar o Pro.',actions:[{label:'Ver opções Pro',run:openProPlans},{label:'Voltar',tone:'neutral'}]});
+},true);
+document.addEventListener('submit',event=>{
+  if(!billingReadOnly()||event.target?.dataset?.proPlans==='true'||event.target?.classList?.contains('archive-modal'))return;
+  event.preventDefault();event.stopImmediatePropagation();
+  showActionDialog({title:'Edição pausada',message:'O plano Pro terminou. Arquive alunos até ficar com 5 ativos ou renove para salvar outras alterações.',actions:[{label:'Entendi',tone:'neutral'}]});
+},true);
+const openProfileSettingsBeforeBilling=openProfileSettings;
+openProfileSettings=function(){
+  openProfileSettingsBeforeBilling();
+  if(!billingReadOnly())return;
+  bindReadOnlyExport();
+};
 if(localStorage.getItem(ONBOARDING_KEY)==='pending'&&!demoMode)setTimeout(openOnboarding,0);
 if(typeof sessionStorage!=='undefined'&&sessionStorage.getItem('compasso-refresh-notice')){sessionStorage.removeItem('compasso-refresh-notice');const url=new URL(location.href);url.searchParams.delete('compasso-update');history.replaceState(null,'',`${url.pathname}${url.search}${url.hash}`);setTimeout(()=>toast(`Compasso ${APP_VERSION} carregado`),250)}

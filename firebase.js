@@ -14,7 +14,7 @@ const db = firebase.firestore();
 const provider = new firebase.auth.GoogleAuthProvider();
 const authPersistenceReady = auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 const SYNC_USER_KEY = 'compasso-cloud-sync-user';
-let state = { ready: false, user: null, hasCloudCopy: null, checkState: 'idle', syncEnabled: false, status: '' };
+let state = { ready: false, user: null, hasCloudCopy: null, checkState: 'idle', syncEnabled: false, status: '', accessState: 'idle', complimentaryPro: false, proAccess: false, paidPlanStatus: '', proSource: '' };
 let pendingBackup = null;
 
 function emit() {
@@ -22,6 +22,28 @@ function emit() {
 }
 function teacherDoc() {
   return state.user ? db.collection('teachers').doc(state.user.uid) : null;
+}
+async function refreshAccess() {
+  const uid = state.user?.uid;
+  if (!uid) return;
+  state.accessState = 'checking';
+  emit();
+  try {
+    const snapshot = await db.collection('entitlements').doc(uid).get();
+    if (state.user?.uid !== uid) return;
+    const grant = snapshot.data();
+    const complimentary = snapshot.exists && grant?.active === true && grant?.plan === 'pro' && grant?.source === 'complimentary';
+    const paid = snapshot.exists && grant?.active === true && grant?.plan === 'pro' && grant?.source === 'google_play';
+    state.complimentaryPro = !!complimentary;
+    state.proAccess = !!(complimentary || paid);
+    state.proSource = snapshot.exists ? grant?.source || '' : '';
+    state.paidPlanStatus = grant?.source === 'google_play' ? grant?.status || (paid ? 'active' : 'expired') : '';
+    state.accessState = 'ready';
+  } catch (error) {
+    if (state.user?.uid !== uid) return;
+    state.accessState = 'error';
+  }
+  emit();
 }
 function friendlyAuthError(error) {
   if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') return 'Entrada com Google cancelada.';
@@ -77,10 +99,11 @@ window.CompassoCloud = {
     try {
       await authPersistenceReady;
       const result = await auth.signInWithPopup(provider);
-      state = { ...state, ready: true, user: result.user, checkState: 'checking', status: 'Verificando a nuvem…' };
+      state = { ...state, ready: true, user: result.user, checkState: 'checking', status: 'Verificando a nuvem…', accessState: 'checking', complimentaryPro: false, proAccess: false, paidPlanStatus: '', proSource: '' };
       emit();
       try { await refreshCloudState(); }
       catch (error) { state.hasCloudCopy = null; state.checkState = 'error'; state.status = 'Conta conectada, mas não foi possível verificar a nuvem. Confira sua conexão e tente novamente.'; emit(); }
+      await refreshAccess();
       return result;
     } catch (error) {
       const message = friendlyAuthError(error);
@@ -90,6 +113,7 @@ window.CompassoCloud = {
   },
   async signOut() { localStorage.removeItem(SYNC_USER_KEY); await auth.signOut(); },
   async uploadCurrent() { return upload(window.CompassoCloudBackup?.()); },
+  refreshAccess,
   async retry() {
     try { await refreshCloudState(); }
     catch (error) { state.hasCloudCopy = null; state.checkState = 'error'; state.status = 'Não foi possível verificar a nuvem. Confira sua conexão e tente novamente.'; emit(); throw error; }
@@ -103,9 +127,13 @@ window.CompassoCloud = {
 };
 
 auth.onAuthStateChanged(async user => {
-  state = { ready: true, user: user || null, hasCloudCopy: null, checkState: user ? 'checking' : 'idle', syncEnabled: false, status: user ? 'Verificando a nuvem…' : 'Entre para proteger seus dados na nuvem' };
+  state = { ready: true, user: user || null, hasCloudCopy: null, checkState: user ? 'checking' : 'idle', syncEnabled: false, status: user ? 'Verificando a nuvem…' : 'Entre para proteger seus dados na nuvem', accessState: user ? 'checking' : 'idle', complimentaryPro: false, proAccess: false, paidPlanStatus: '', proSource: '' };
   emit();
   if (!user) return;
+  refreshAccess();
   try { await refreshCloudState(); }
   catch (error) { state.hasCloudCopy = null; state.checkState = 'error'; state.status = 'Não foi possível verificar a nuvem. Confira sua conexão e tente novamente.'; emit(); }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.user) refreshAccess();
 });
