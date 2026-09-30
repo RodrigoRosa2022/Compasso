@@ -2,9 +2,10 @@ const STORAGE_KEY = 'compasso-static-v3';
 const OLD_STORAGE_KEY = 'compasso-static';
 const DEMO_STORAGE_KEY = 'compasso-demo-v1';
 const DEMO_ACTIVE_KEY = 'compasso-demo-active';
+const DAMAGED_LOCAL_KEY = 'compasso-damaged-local-recovery-v1';
 const ONBOARDING_KEY = 'compasso-onboarding-complete-v1';
 const ONBOARDING_AUTH_KEY = 'compasso-onboarding-google-pending';
-const APP_VERSION = '1.1.27';
+const APP_VERSION = '1.1.30';
 const COLORS = ['#668981','#d47c63','#7973a5','#c0924e','#b36d83','#5683a0','#648c88'];
 const DAYS = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const STAGES = ['Em espera','Aprendendo','Executando'];
@@ -40,7 +41,15 @@ const existingInstall=!!realStoredRaw;
 let demoMode=localStorage.getItem(DEMO_ACTIVE_KEY)==='true';
 if(!localStorage.getItem(ONBOARDING_KEY))localStorage.setItem(ONBOARDING_KEY,existingInstall?'true':'pending');
 const initialStoredRaw=demoMode?localStorage.getItem(DEMO_STORAGE_KEY):realStoredRaw;
-let data=migrate(JSON.parse(initialStoredRaw||'null'));
+let initialStoredData=null;
+let initialStorageIssue='';
+try{initialStoredData=JSON.parse(initialStoredRaw||'null')}catch(error){initialStoredData=null;initialStorageIssue='Os dados deste aparelho não puderam ser lidos.'}
+if(!demoMode&&initialStoredData?.schemaVersion===2){
+  try{window.CompassoDataV2.validateCanonical(initialStoredData)}
+  catch(error){initialStoredData=null;initialStorageIssue='Os dados deste aparelho estão danificados.'}
+}
+if(initialStorageIssue&&!demoMode&&initialStoredRaw){try{localStorage.setItem(DAMAGED_LOCAL_KEY,initialStoredRaw)}catch(error){}}
+let data=migrate(initialStoredData);
 data.settings=data.settings||{teacherName:'',schoolName:''};
 let ui={page:'inicio',selectedStudent:null,selectedItem:null,selectedPayment:null,selectedClass:null,libraryKind:'musica',search:'',paymentFilter:'all',scheduleDay:DAYS[(new Date().getDay()+6)%7],paymentMonth:0,moneyVisible:false,agendaView:'week',agendaMonth:0};
 const app=$('#app');
@@ -200,7 +209,7 @@ async function openDirectCamera(fallbackInput,onCapture){let stream;try{if(!navi
 function save(){try{localStorage.setItem(demoMode?DEMO_STORAGE_KEY:STORAGE_KEY,JSON.stringify(data));return true}catch(error){toast('Armazenamento cheio. Remova algumas fotos ou dados antes de continuar.');return false}}
 function nav(){const items=[['inicio','⌂','Início'],['agenda','▦','Agenda'],['alunos','♙','Alunos'],['pagamentos','$','Pagamentos'],['acervo','♫','Acervo']];return `<aside><div class="brand"><b>C</b><strong>Compasso</strong></div>${items.map(x=>`<button class="${ui.page===x[0]&&!ui.selectedStudent&&!ui.selectedItem?'on':''}" data-page="${x[0]}"><i>${x[1]}</i>${x[2]}</button>`).join('')}<button class="user user-button" data-profile-settings>${profileShortcutAvatar()}<span><b>${esc(data.settings.teacherName||'Professor de piano')}</b><small>${esc(data.settings.schoolName||'Definir escola')}</small></span></button></aside><nav class="mobile-nav">${items.map(x=>`<button class="${ui.page===x[0]&&!ui.selectedStudent&&!ui.selectedItem?'on':''}" data-page="${x[0]}"><i>${x[1]}</i><small>${x[2]}</small></button>`).join('')}</nav>`}
 function openEraseAllDataModal(){
-  const cloud=window.CompassoCloud?.state,cloudActive=!!(cloud?.user&&cloud?.syncEnabled);
+  const cloud=window.CompassoCloud?.state,cloudActive=!!cloud?.user;
   modalShell('Apagar todos os dados',`<div class="erase-warning"><b>Esta ação não pode ser desfeita.</b><p>Todos os alunos, livros, repertórios, aulas, pagamentos e históricos serão apagados deste aparelho. Se a sincronização estiver ativa, esses dados também serão removidos da nuvem. Seu nome, escola e foto serão mantidos.</p></div><label>Para confirmar, digite exatamente:<strong>apagar todos os dados</strong><input id="erase-confirmation" type="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" data-lpignore="true" data-1p-ignore="true" name="compasso-delete-confirmation-${Date.now()}" required></label>`);
   const submit=$('.modal .save');submit.textContent='Apagar definitivamente';
   $('.modal').onsubmit=async event=>{
@@ -211,10 +220,12 @@ function openEraseAllDataModal(){
     submit.disabled=true;submit.textContent=cloudActive?'Apagando neste aparelho e na nuvem…':'Apagando…';
     if(!saveBeforeCloud()){data=previousData;submit.disabled=false;submit.textContent='Apagar definitivamente';return}
     try{
-      if(cloudActive)await window.CompassoCloud.uploadCurrent();
+      if(cloudActive)await window.CompassoCloud.eraseCloudData(createBackupDocument());
     }catch(error){
       data=previousData;saveBeforeCloud();submit.disabled=false;submit.textContent='Apagar definitivamente';showDuplicate('Não foi possível apagar a cópia da nuvem. Nada foi removido; confira sua conexão e tente novamente.');return;
     }
+    localStorage.removeItem(DAMAGED_LOCAL_KEY);
+    localStorage.removeItem(OLD_STORAGE_KEY);
     resetWorkspaceUi();closeModal(true);toast(cloudActive?'Dados apagados deste aparelho e da nuvem':'Todos os dados foram apagados');render();
   };
 }
@@ -474,6 +485,7 @@ const schemaV2Engine=window.CompassoDataV2;
 const SCHEMA_V1_RECOVERY_KEY='compasso-schema-v1-recovery';
 try{const previousRaw=localStorage.getItem(STORAGE_KEY)||localStorage.getItem(OLD_STORAGE_KEY),previousDocument=previousRaw?JSON.parse(previousRaw):null;if(previousDocument&&previousDocument.schemaVersion!==2&&!localStorage.getItem(SCHEMA_V1_RECOVERY_KEY))localStorage.setItem(SCHEMA_V1_RECOVERY_KEY,previousRaw)}catch(error){}
 if(schemaV2Engine)data=schemaV2Engine.hydrate(schemaV2Engine.fromLegacy(data));
+if(initialStorageIssue&&!demoMode){data.meta=data.meta||{};data.meta.syncIntegrityIssue=initialStorageIssue+' Uma cópia de recuperação foi mantida neste aparelho.'}
 
 var lastSavedState=structuredClone(data);
 save=function(){
@@ -524,7 +536,7 @@ setInterval(refreshCalendarDate,30000);
 function markFormDirty(){const form=$('.modal');if(form)form.dataset.dirty='true'}
 
 function photoFreeCanonical(value){return JSON.parse(JSON.stringify(value,(key,item)=>key==='foto'||key==='photo'?undefined:item))}
-createBackupDocument=function(exportedAt=new Date().toISOString()){const backupData=photoFreeCanonical(schemaV2Engine.canonicalOnly(data));backupData.settings=backupData.settings||{};backupData.settings.lastBackupAt=exportedAt;return {format:BACKUP_FORMAT,backupVersion:2,appVersion:APP_VERSION,exportedAt,data:backupData}};
+createBackupDocument=function(exportedAt=new Date().toISOString()){const backupData=photoFreeCanonical(schemaV2Engine.canonicalOnly(data));backupData.settings=backupData.settings||{};backupData.settings.lastBackupAt=exportedAt;if(backupData.meta){delete backupData.meta.syncJournal;delete backupData.meta.syncIntegrityIssue}return {format:BACKUP_FORMAT,backupVersion:2,appVersion:APP_VERSION,exportedAt,data:backupData}};
 backupSummary=function(backupData){if(backupData?.schemaVersion===2){const students=backupData.students||[];return {active:students.filter(student=>student.active!==false).length,former:students.filter(student=>student.active===false).length,classes:(backupData.classOverrides||[]).length,payments:(backupData.paymentRecords||[]).length,books:(backupData.books||[]).length,repertoire:(backupData.repertoire||[]).length}}const students=backupData.alunos||[];return {active:students.filter(student=>student.ativo!==false).length,former:students.filter(student=>student.ativo===false).length,classes:(backupData.classRecords||[]).length,payments:(backupData.pagamentos||[]).length,books:(backupData.livros||[]).length,repertoire:(backupData.repertorio||[]).length}};
 validateBackupDocument=function(documentData){
   const object=value=>value&&typeof value==='object'&&!Array.isArray(value);
@@ -672,14 +684,54 @@ function preservePaymentHistory(target,previous){
 
 // Private Google cloud copy (v1.1.20). Photos deliberately stay only on the device.
 window.CompassoCloudBackup=()=>demoMode?null:createBackupDocument();
+window.CompassoCloudOperations=()=>demoMode?null:structuredClone({entries:data.meta?.syncJournal?.entries||[],issue:data.meta?.syncIntegrityIssue||''});
 const saveBeforeCloud=save;
 let billingArchiveWrite=false;
+let lastUserAction=null;
+function captureUserAction(event){
+  if(demoMode||!event.isTrusted)return;
+  const target=event.target?.closest?.('button,input,select,textarea,form');
+  if(!target)return;
+  try{
+    const label=target.textContent?.trim().slice(0,80)||target.getAttribute('aria-label')||target.name||target.id||event.type;
+    lastUserAction={label,at:new Date().toISOString(),before:window.CompassoJournal.material(schemaV2Engine.canonicalOnly(structuredClone(data)))};
+  }catch(error){lastUserAction=null}
+}
+for(const type of ['click','change','submit'])document.addEventListener(type,captureUserAction,true);
 save=function(){
   if(billingReadOnly()&&!billingArchiveWrite){restoreRuntime(data,lastSavedState);return false}
+  if(!demoMode){
+    try{
+      const journal=window.CompassoJournal;
+      const before=journal.material(schemaV2Engine.canonicalOnly(structuredClone(lastSavedState)));
+      schemaV2Engine.sync(data); // Assign stable IDs before recording the exact proposed change.
+      const after=journal.material(data);
+      const delta=journal.changes(before,after);
+      if(delta.length){
+        data.meta=data.meta||{};
+        if(!lastUserAction||!journal.same(lastUserAction.before,before)){
+          data.meta.syncIntegrityIssue='Há alterações locais sem uma ação correspondente. Nada será enviado à nuvem.';
+        }else{
+          const pending=data.meta.syncJournal||{entries:[]};
+          pending.entries.push({id:schemaV2Engine.newId('operation'),at:lastUserAction.at,label:lastUserAction.label,changes:delta});
+          data.meta.syncJournal=pending;
+        }
+      }
+    }catch(error){data.meta=data.meta||{};data.meta.syncIntegrityIssue='Não foi possível conferir a alteração local.'}
+  }
+  lastUserAction=null;
   const saved=saveBeforeCloud();
   if(saved&&!demoMode)window.CompassoCloud?.sync?.(createBackupDocument());
   return saved;
 };
+window.addEventListener('compasso-cloud-ack',event=>{
+  const accepted=new Set(event.detail?.ids||[]);
+  const pending=data.meta?.syncJournal;
+  if(!pending?.entries?.length)return;
+  pending.entries=pending.entries.filter(entry=>!accepted.has(entry.id));
+  if(!pending.entries.length)delete data.meta.syncJournal;
+  saveBeforeCloud();
+});
 const FREE_STUDENT_LIMIT=5;
 function activeStudentCount(){return data.alunos.filter(student=>student.ativo!==false).length}
 function billingReadOnly(){const access=window.CompassoCloud?.state;return !demoMode&&activeStudentCount()>FREE_STUDENT_LIMIT&&['ready','error'].includes(access?.accessState)&&access.proSource==='google_play'&&!access.proAccess}
@@ -711,33 +763,57 @@ function cloudPanelMarkup(){
   if(!cloud)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Cópia na nuvem</b><p>Preparando proteção dos dados…</p></span></div></section>`;
   if(!cloud.user)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Cópia na nuvem</b><p>${esc(cloud.status)}</p></span></div><button type="button" class="cloud-action" data-cloud-sign-in>Entrar com Google</button></section>`;
   const account=cloud.user.displayName||cloud.user.email||'Conta Google';
-  if(cloud.checkState==='checking')return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Verificando a nuvem…</b><p>${esc(account)}</p></span></div></section>`;
-  if(cloud.checkState==='error')return `<section class="cloud-zone cloud-error" data-cloud-zone><div class="backup-heading"><i>!</i><span><b>Não foi possível verificar a nuvem</b><p>${esc(cloud.status)}</p></span></div><button type="button" class="cloud-action" data-cloud-retry>Tentar novamente</button><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
-  if(cloud.checkState==='missing')return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Proteja seus dados</b><p>Nenhuma cópia encontrada para ${esc(account)}.</p></span></div><button type="button" class="cloud-action" data-cloud-upload>Enviar dados deste aparelho à nuvem</button><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
-  if(!cloud.syncEnabled)return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Escolha qual cópia usar</b><p>${esc(account)}</p></span></div><div class="cloud-actions cloud-actions-choice"><button type="button" class="cloud-action" data-cloud-restore><b>Trazer dados da nuvem</b><small>Substitui os dados deste aparelho</small></button><button type="button" class="cloud-secondary" data-cloud-upload><b>Enviar dados deste aparelho</b><small>Substitui a cópia da nuvem</small></button></div><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
-  return `<section class="cloud-zone" data-cloud-zone><div class="backup-heading"><i>☁</i><span><b>Dados protegidos na nuvem</b><p>${esc(cloud.status)} · ${esc(account)}</p></span></div><div class="cloud-actions cloud-actions-choice"><button type="button" class="cloud-secondary" data-cloud-restore><b>Trazer dados da nuvem</b><small>Substitui os dados deste aparelho</small></button><button type="button" class="cloud-secondary" data-cloud-upload><b>Enviar dados deste aparelho</b><small>Substitui a cópia da nuvem</small></button></div><button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
+  const problem=['error','conflict'].includes(cloud.checkState);
+  const busy=cloud.checkState==='checking';
+  return `<section class="cloud-zone${problem?' cloud-error':''}" data-cloud-zone><div class="backup-heading"><i>${problem?'!':'☁'}</i><span><b>${problem?'Sincronização precisa de atenção':busy?'Conferindo seus dados…':'Cópia na nuvem'}</b><p>${esc(cloud.status)} · ${esc(account)}</p></span></div>${cloud.checkState==='conflict'&&cloud.hasCloudCopy?'<button type="button" class="cloud-action" data-cloud-review>Revisar diferenças</button>':cloud.checkState==='error'?'<button type="button" class="cloud-action" data-cloud-retry>Verificar novamente</button>':''}<button type="button" class="cloud-link" data-cloud-sign-out>Sair desta conta</button></section>`;
+}
+function conflictValue(value,field){
+  if(value===null||value===undefined)return '<em>não informado</em>';
+  if(field==='amountCents')return secretMoney(Number(value)/100);
+  if(typeof value==='object')return '<em>histórico alterado</em>';
+  return esc(String(value).slice(0,90));
+}
+function conflictDescription(change){
+  if(change.before===null)return '<small>Existe neste aparelho, mas não na nuvem.</small>';
+  if(change.after===null)return '<small>Existe na nuvem, mas não neste aparelho.</small>';
+  if(typeof change.before!=='object'||typeof change.after!=='object')return `<small>Nuvem: ${conflictValue(change.before,change.id)} · Aparelho: ${conflictValue(change.after,change.id)}</small>`;
+  const labels={name:'Nome',title:'Título',active:'Situação',status:'Situação',completedAt:'Conclusão',startedAt:'Início',amountCents:'Valor',confirmedAt:'Recebido em',notes:'Comentário',comments:'Comentários',time:'Horário',duration:'Duração',contact:'Contato',studentId:'Aluno',bookId:'Livro',repertoireId:'Música'};
+  return Object.keys({...change.before,...change.after}).filter(key=>key!=='id'&&key!=='key'&&JSON.stringify(change.before[key])!==JSON.stringify(change.after[key])).slice(0,5).map(key=>`<small><b>${esc(labels[key]||key)}:</b> nuvem ${conflictValue(change.before[key],key)} · aparelho ${conflictValue(change.after[key],key)}</small>`).join('');
+}
+async function openCloudConflictReview(){
+  try{
+    const review=await window.CompassoCloud.inspectConflict();
+    if(!review.differences.length){await window.CompassoCloud.retry();toast('As cópias já estão iguais');return}
+    const profileModal=$('.modal');
+    if(profileModal?.dataset.dirty==='true'){toast('Salve ou descarte as alterações do perfil antes de revisar os dados.');return}
+    if(profileModal)closeModal(true);
+    modalShell('Conferir dados',`<div class="conflict-heading"><p class="conflict-intro">Encontramos diferenças. Nada será substituído até você escolher a versão correta de cada registro. Guarde as duas cópias se tiver dúvida.</p><button type="button" class="eye" data-conflict-eye aria-label="Segure para mostrar valores" title="Segure para mostrar valores">◉</button></div><div class="conflict-downloads"><button type="button" data-conflict-export="local">Baixar cópia do aparelho</button><button type="button" data-conflict-export="cloud">Baixar cópia da nuvem</button></div><div class="conflict-list">${review.differences.map((change,index)=>`<fieldset class="conflict-item"><legend>${esc(change.label)}</legend>${conflictDescription(change)}<div class="conflict-choices"><label><input type="radio" name="conflict-${index}" value="cloud" required> Nuvem</label><label><input type="radio" name="conflict-${index}" value="local" required> Aparelho</label></div></fieldset>`).join('')}</div><p class="conflict-foot">Se as escolhas não formarem um cadastro válido, nenhuma cópia será alterada.</p>`);
+    const modal=$('.modal');modal.dataset.cloudReview='true';modal.querySelector('.save').textContent='Aplicar escolhas';
+    const eye=$('[data-conflict-eye]',modal),show=event=>{event.preventDefault();ui.moneyVisible=true;updateMoneyDisplay()},hide=event=>{event.preventDefault();ui.moneyVisible=false;updateMoneyDisplay()};
+    ['pointerdown','touchstart','mousedown'].forEach(type=>eye.addEventListener(type,show,{passive:false}));
+    ['pointerup','pointercancel','pointerleave','touchend','mouseup','blur'].forEach(type=>eye.addEventListener(type,hide,{passive:false}));
+    $$('[data-conflict-export]',modal).forEach(button=>button.onclick=()=>{const backup=button.dataset.conflictExport==='cloud'?review.remoteBackup:review.localBackup;triggerJsonDownload(backup,`compasso-${button.dataset.conflictExport}-antes-de-revisar.json`)});
+    modal.addEventListener('change',event=>{if(event.target.matches('input[type=radio]'))modal.dataset.dirty='false'});
+    modal.onsubmit=async event=>{
+      event.preventDefault();
+      const choices=review.differences.map((_,index)=>modal.querySelector(`input[name="conflict-${index}"]:checked`)?.value||'');
+      if(choices.some(choice=>!choice)){showDuplicate('Escolha Nuvem ou Aparelho em cada diferença.');return}
+      const button=modal.querySelector('.save');button.disabled=true;
+      try{await window.CompassoCloud.resolveConflict(choices);closeModal(true);toast('Dados conferidos e sincronizados');render()}
+      catch(error){button.disabled=false;showDuplicate(error?.message||'Não foi possível aplicar as escolhas. Nada foi descartado.')}
+    };
+  }catch(error){showActionDialog({title:'Não foi possível comparar',message:error?.message||'Confira a conexão e tente novamente.',actions:[{label:'Voltar',tone:'neutral'}]})}
 }
 function bindCloudPanel(){
   const zone=$('[data-cloud-zone]');if(!zone)return;
   const run=async(action)=>{try{await action()}catch(error){toast(error?.message||'Não foi possível concluir agora.')}};
   $('[data-cloud-sign-in]',zone)?.addEventListener('click',()=>run(async()=>{
     await window.CompassoCloud.signIn();
-    const cloud=window.CompassoCloud.state;
-    if(cloud.checkState==='missing'){
-      await window.CompassoCloud.uploadCurrent();
-      toast(`Conta conectada · primeira cópia salva para ${cloud.user?.displayName||cloud.user?.email||'sua conta Google'}`);
-    }else if(cloud.checkState==='available'&&cloud.syncEnabled)toast('Conta Google conectada · sincronização ativa');
-    else if(cloud.checkState==='available')toast('Conta conectada · encontramos uma cópia na nuvem');
-    else if(cloud.checkState==='error')toast(cloud.status);
+    toast('Conta Google conectada');
   }));
   $('[data-cloud-retry]',zone)?.addEventListener('click',()=>run(()=>window.CompassoCloud.retry()));
-  $('[data-cloud-upload]',zone)?.addEventListener('click',()=>{
-    const cloud=window.CompassoCloud.state;
-    const upload=()=>run(async()=>{await window.CompassoCloud.uploadCurrent();toast('Dados deste aparelho enviados para a nuvem')});
-    showActionDialog({title:'Enviar dados deste aparelho para a nuvem?',message:'Os dados atualmente neste aparelho substituirão a cópia salva na conta Google. Os dados da nuvem que não estejam neste aparelho serão perdidos. As fotos não são enviadas.',actions:[{label:'Enviar para a nuvem',tone:'danger',run:upload},{label:'Voltar',tone:'neutral'}]});
-  });
+  $('[data-cloud-review]',zone)?.addEventListener('click',openCloudConflictReview);
   $('[data-cloud-sign-out]',zone)?.addEventListener('click',()=>run(async()=>{await window.CompassoCloud.signOut();toast('Conta desconectada')}));
-  $('[data-cloud-restore]',zone)?.addEventListener('click',()=>showActionDialog({title:'Trazer dados da nuvem para este aparelho?',message:'A cópia da conta Google substituirá os dados atualmente salvos neste aparelho. Os dados locais que não estejam na nuvem serão perdidos. As fotos deste aparelho serão mantidas.',actions:[{label:'Trazer dados da nuvem',tone:'danger',run:()=>run(()=>window.CompassoCloud.restore())},{label:'Voltar',tone:'neutral'}]}));
 }
 async function forceAppRefresh(){
   if(!navigator.onLine){toast('Conecte-se à internet para buscar uma nova versão');return}
@@ -787,16 +863,18 @@ window.addEventListener('compasso-cloud-state',()=>{
   syncBillingUi();
 });
 window.addEventListener('compasso-cloud-restore',event=>{
-  const {backup,resolve,reject}=event.detail;
+  const {backup,automatic,resolve,reject}=event.detail;
   try{
     validateBackupDocument(backup);
     const previous=structuredClone(data),photo=data.settings?.foto;
-    downloadBackup({prefix:'compasso-backup-antes-restauracao-nuvem',updateTimestamp:false,withTime:true});
+    if(!automatic&&(previous.alunos?.length||previous.livros?.length||previous.repertorio?.length))downloadBackup({prefix:'compasso-backup-antes-restauracao-nuvem',updateTimestamp:false,withTime:true});
     data=schemaV2Engine.hydrate(structuredClone(backup.data));
     if(photo)data.settings.foto=photo;
+    const keepPhotos=(next,old)=>{for(const item of next||[]){const match=(old||[]).find(entry=>String(entry.id)===String(item.id))||(old||[]).find(entry=>norm(entry.nome)===norm(item.nome));if(match?.foto)item.foto=match.foto}};
+    keepPhotos(data.alunos,previous.alunos);keepPhotos(data.livros,previous.livros);keepPhotos(data.repertorio,previous.repertorio);
     data.settings.lastCloudRestoreAt=new Date().toISOString();
     data.demoEligible=false;data.demoKurtSeyit=true;
-    if(!save()){data=previous;throw new Error('Não foi possível salvar a cópia neste aparelho.');}
+    if(!saveBeforeCloud()){data=previous;throw new Error('Não foi possível salvar a cópia neste aparelho.');}
     ui={...ui,page:'inicio',selectedStudent:null,selectedItem:null,selectedPayment:null,selectedClass:null,search:'',paymentMonth:0,moneyVisible:false,agendaView:'week',agendaMonth:0,showGoners:false};
     closeModal(true);toast('Dados restaurados da nuvem');render();resolve?.();
   }catch(error){reject?.(error);}
@@ -818,6 +896,7 @@ async function enterDemoMode(){
 function exitDemoMode(){
   demoMode=false;localStorage.removeItem(DEMO_ACTIVE_KEY);localStorage.removeItem(DEMO_STORAGE_KEY);
   const raw=localStorage.getItem(STORAGE_KEY)||localStorage.getItem(OLD_STORAGE_KEY);data=runtimeFromStored(JSON.parse(raw||'null'));lastSavedState=structuredClone(data);resetWorkspaceUi();render();
+  window.CompassoCloud?.retry?.().catch(()=>{});
   if(localStorage.getItem(ONBOARDING_KEY)==='pending'){openOnboarding();toast('Escolha como deseja começar')}
   else toast('Seus dados reais estão de volta');
 }
@@ -849,15 +928,11 @@ function handleOnboardingCloudState(){
     onboardingCloudMessage('Não foi possível consultar a nuvem',cloud.status||'Confira sua conexão e tente novamente.',`<button type="button" data-onboarding-retry>Tentar novamente</button>`);
     bindOnboardingCloudAction('[data-onboarding-retry]',()=>window.CompassoCloud.retry());return;
   }
-  if(cloud.checkState==='missing'){
-    onboardingCloudMessage('Criando seu espaço…','Esta será a primeira cópia protegida da sua conta.');
-    if(onboardingCloudBusy)return;onboardingCloudBusy=true;
-    window.CompassoCloud.uploadCurrent().then(()=>completeCloudOnboarding('Seu espaço foi criado e já está sincronizado')).catch(error=>{onboardingCloudBusy=false;onboardingCloudMessage('Não foi possível criar seu espaço',error?.message||'Confira sua conexão e tente novamente.',`<button type="button" data-onboarding-retry>Tentar novamente</button>`);bindOnboardingCloudAction('[data-onboarding-retry]',handleOnboardingCloudState)});return;
+  if(cloud.checkState==='conflict'){
+    completeCloudOnboarding('Conta conectada · confira a sincronização em Dados do professor');return;
   }
-  if(cloud.checkState==='available'&&cloud.syncEnabled){completeCloudOnboarding('Dados conectados à sua conta Google');return}
-  if(cloud.checkState==='available'){
-    onboardingCloudMessage('Encontramos seus dados',`Há uma cópia do Compasso em ${account}.`,`<button type="button" data-onboarding-restore>Restaurar meus dados</button>`);
-    bindOnboardingCloudAction('[data-onboarding-restore]',()=>window.CompassoCloud.restore());
+  if(cloud.syncEnabled){
+    completeCloudOnboarding(cloud.checkState==='pending'?'Conta conectada · seus dados serão sincronizados':'Dados conectados à sua conta Google');return;
   }
 }
 async function startOnboardingGoogle(button){
@@ -901,8 +976,8 @@ document.addEventListener('click',event=>{
   const target=event.target.closest('button');if(!target)return;
   if(target.matches('[data-stop-student]')&&data.alunos.some(student=>String(student.id)===target.dataset.stopStudent&&student.ativo!==false))return;
   const modal=target.closest('.modal');
-  const safeModalButton=target.matches('.modal-close,.archive-cancel,#export-backup,[data-refresh-access],[data-pro-options],[data-cloud-sign-out],[data-hard-refresh],[data-enter-demo]')||modal?.classList.contains('archive-modal')||modal?.dataset.proPlans==='true';
-  const blocked=target.matches('[data-modal],[data-edit-student],[data-edit-item],[data-assign-book],[data-assign-music],[data-book-status],[data-edit-book-link],[data-edit-music-link],[data-stage-student],[data-remove-music],[data-pay],[data-cancel-payment],[data-class-status],[data-reschedule],[data-stop-student],[data-cloud-upload],[data-cloud-restore]')||modal&&!safeModalButton;
+  const safeModalButton=target.matches('.modal-close,.archive-cancel,#export-backup,[data-refresh-access],[data-pro-options],[data-cloud-sign-in],[data-cloud-retry],[data-cloud-review],[data-cloud-sign-out],[data-hard-refresh],[data-enter-demo]')||modal?.classList.contains('archive-modal')||modal?.dataset.proPlans==='true'||modal?.dataset.cloudReview==='true';
+  const blocked=target.matches('[data-modal],[data-edit-student],[data-edit-item],[data-assign-book],[data-assign-music],[data-book-status],[data-edit-book-link],[data-edit-music-link],[data-stage-student],[data-remove-music],[data-pay],[data-cancel-payment],[data-class-status],[data-reschedule],[data-stop-student]')||modal&&!safeModalButton;
   if(!blocked)return;
   event.preventDefault();event.stopImmediatePropagation();
   showActionDialog({title:'Edição pausada',message:'O plano Pro terminou e há mais de 5 alunos ativos. Seus dados permanecem disponíveis. Você pode arquivar alunos até ficar com 5 ou renovar o Pro.',actions:[{label:'Ver opções Pro',run:openProPlans},{label:'Voltar',tone:'neutral'}]});
