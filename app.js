@@ -5,7 +5,7 @@ const DEMO_ACTIVE_KEY = 'compasso-demo-active';
 const DAMAGED_LOCAL_KEY = 'compasso-damaged-local-recovery-v1';
 const ONBOARDING_KEY = 'compasso-onboarding-complete-v1';
 const ONBOARDING_AUTH_KEY = 'compasso-onboarding-google-pending';
-const APP_VERSION = '1.1.30';
+const APP_VERSION = '1.1.32';
 const COLORS = ['#668981','#d47c63','#7973a5','#c0924e','#b36d83','#5683a0','#648c88'];
 const DAYS = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const STAGES = ['Em espera','Aprendendo','Executando'];
@@ -750,7 +750,7 @@ function openProPlans(){
 }
 function planPanelMarkup(){
   const count=activeStudentCount(),access=window.CompassoCloud?.state,pro=access?.proAccess===true,locked=billingReadOnly();
-  const title=access?.complimentaryPro?'Compasso Pro · cortesia':pro?'Compasso Pro':locked?'Plano Pro encerrado':'Plano gratuito';
+  const title=access?.complimentaryPro?'Compasso Pro ativo · cortesia':pro?'Compasso Pro ativo':locked?'Plano Pro encerrado':'Plano gratuito';
   const detail=pro?`${count} ${count===1?'aluno ativo':'alunos ativos'} · sem limite de alunos`:locked?`${count} alunos ativos · arquive até ficar com 5 ou renove`:access?.accessState==='checking'?`Verificando acesso Pro · ${count} alunos ativos`:access?.accessState==='error'?`Não foi possível verificar o acesso Pro · ${count} alunos ativos`:`${count} de ${FREE_STUDENT_LIMIT} alunos ativos${count>FREE_STUDENT_LIMIT?' · cadastros existentes preservados':''}`;
   return `<section class="plan-zone" data-plan-zone><div class="plan-heading"><i>♫</i><span><b>${title}</b><small>${detail}</small></span></div><div class="plan-actions">${!pro?'<button type="button" data-pro-options>Ver Pro</button>':''}${access?.user?'<button type="button" data-refresh-access>Verificar acesso</button>':''}</div></section>`;
 }

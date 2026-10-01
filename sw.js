@@ -1,4 +1,4 @@
-const CACHE = 'compasso-static-v39';
+const CACHE = 'compasso-static-v41';
 const BASE = new URL('./', self.location.href);
 const FILES = [
   'index.html',
