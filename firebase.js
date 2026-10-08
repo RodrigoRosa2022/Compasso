@@ -211,7 +211,9 @@ async function reconcile(uid, generation) {
       if(ids.length)window.dispatchEvent(new CustomEvent('compasso-cloud-ack',{detail:{ids}}));
       await linkedTo(uid, revision, remoteHash);
     } else if ((!meaningful(local) && (meaningful(remote) || (!hasProfile(local) && hasProfile(remote)))) || (anchor?.hash === localHash && anchor?.revision <= revision)) {
-      if (document.querySelector('.modal-back')) throw new Error('Feche a edição aberta para recuperar os dados da nuvem.');
+      // A clean profile/dialog is only a view: the restore handler closes it after
+      // the cloud copy is safely persisted. Never discard genuinely unsaved edits.
+      if (document.querySelector('.modal-back .modal[data-dirty="true"]')) throw new Error('Feche a edição aberta para recuperar os dados da nuvem.');
       if (await fingerprint(localBackup()) !== localHash) throw new Error('Os dados deste aparelho mudaram durante a conferência. Tente novamente.');
       await restoreCloud(remote);
       if (!valid()) return;

@@ -248,8 +248,9 @@ function validateCanonical(raw){
   for(const link of raw.studentRepertoire){
     reference('students',link.studentId,'Repertório do aluno');reference('repertoire',link.repertoireId,'Repertório do aluno');range(link.startedAt,link.completedAt,'Histórico do repertório');
     if(!Array.isArray(link.statusEvents)||!link.statusEvents.length)fail('etapas do repertório ausentes.');
-    let previous=link.startedAt;
-    for(const event of link.statusEvents){if(!object(event)||!['waiting','learning','performing'].includes(event.status))fail('etapa de repertório inválida.');date(event.date,'Data da etapa');if(event.date<previous||(link.completedAt&&event.date>link.completedAt))fail('datas das etapas fora de ordem.');previous=event.date}
+    // Older releases allowed a stage date before the relationship's start date.
+    // It is a correctable chronology issue, not a reason to hide every student or reject a cloud restore.
+    for(const event of link.statusEvents){if(!object(event)||!['waiting','learning','performing'].includes(event.status))fail('etapa de repertório inválida.');date(event.date,'Data da etapa')}
   }
   for(const p of raw.paymentRecords){
     if(!id(p.studentId))fail('aluno do pagamento inválido.');
