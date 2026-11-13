@@ -5,7 +5,7 @@ const DEMO_ACTIVE_KEY = 'compasso-demo-active';
 const DAMAGED_LOCAL_KEY = 'compasso-damaged-local-recovery-v1';
 const ONBOARDING_KEY = 'compasso-onboarding-complete-v1';
 const ONBOARDING_AUTH_KEY = 'compasso-onboarding-google-pending';
-const APP_VERSION = '1.1.34';
+const APP_VERSION = '1.1.35';
 const COLORS = ['#668981','#d47c63','#7973a5','#c0924e','#b36d83','#5683a0','#648c88'];
 const DAYS = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const STAGES = ['Em espera','Aprendendo','Executando'];
@@ -744,17 +744,33 @@ function showStudentLimit(){
   showActionDialog({title:'Limite de alunos ativos',message,actions:[{label:'Ver opções Pro',run:openProPlans},{label:'Agora não',tone:'neutral'}]});
 }
 function openProPlans(){
-  if($('.modal-back')){showActionDialog({title:'Compasso Pro',message:'Estão previstos planos mensal, semestral e anual pela Play Store. Cartão e Pix dependerão das opções oferecidas ao comprador. A contratação ainda não está disponível e seu cadastro não será apagado.',actions:[{label:'Voltar ao cadastro',tone:'neutral'}]});return}
-  modalShell('Compasso Pro',`<p class="pro-intro">Mais de 5 alunos ativos, com todos os seus dados preservados.</p><div class="pro-options"><div><b>Mensal</b><small>Renovação mensal pela Play Store</small></div><div><b>Semestral</b><small>6 meses pela Play Store</small></div><div><b>Anual</b><small>12 meses pela Play Store</small></div></div><p class="pro-pending">Cartão e Pix dependem das opções de pagamento oferecidas pela Play Store. A contratação ainda não está disponível; valores e pagamento aparecerão aqui quando a versão da Play Store estiver preparada.</p>`);
+  if($('.modal-back')){if(closeModal(false,openProPlans))openProPlans();return}
+  modalShell('Compasso Pro',`<p class="pro-intro">Todos os recursos, sem limite de alunos. A assinatura fica vinculada à sua conta do Compasso.</p><div class="pro-options" data-play-plans><p>Carregando planos da Play…</p></div><p role="status" aria-live="polite" data-play-status></p><button type="button" class="cloud-link" data-restore-purchases>Restaurar compras</button><a class="cloud-link" href="https://play.google.com/store/account/subscriptions" target="_blank" rel="noopener">Gerenciar assinatura na Play</a>`);
   $('.modal').dataset.proPlans='true';
   $('.modal .save').textContent='Voltar';
   $('.modal').onsubmit=event=>{event.preventDefault();closeModal(true)};
+  const modal=$('.modal'),plans=$('[data-play-plans]',modal),status=$('[data-play-status]',modal);
+  const restore=$('[data-restore-purchases]',modal);
+  restore.onclick=async()=>{restore.disabled=true;status.textContent='Conferindo compras…';try{const active=await window.CompassoBilling.restore();status.textContent=active?'Compasso Pro ativo. Seu acesso já está liberado.':'Nenhuma assinatura ativa encontrada. Pagamentos pendentes serão liberados após a confirmação da Play.'}catch(error){status.textContent=error.message}finally{restore.disabled=false;if(window.CompassoCloud?.state.proAccess)plans.querySelectorAll('button').forEach(b=>b.disabled=true)}};
+  window.CompassoBilling.prepare().then(items=>{
+    if(!modal.isConnected)return;
+    plans.innerHTML=items.length?'':'Nenhum plano disponível nesta conta da Play.';
+    for(const item of items){const button=document.createElement('button');button.type='button';button.className='cloud-action';button.textContent=`${item.title} · ${new Intl.NumberFormat('pt-BR',{style:'currency',currency:item.price.currency}).format(item.price.value)}${item.subscriptionPeriod?' / '+({P1M:'mês',P6M:'6 meses',P1Y:'ano'}[item.subscriptionPeriod]||item.subscriptionPeriod):''}`;plans.append(button);button.onclick=async()=>{
+      plans.querySelectorAll('button').forEach(b=>b.disabled=true);status.textContent='Abrindo pagamento seguro da Play…';
+      try{const active=await window.CompassoBilling.buy(item);status.textContent=active?'Compasso Pro ativo. Seu acesso já está liberado.':'Pagamento aguardando confirmação da Play. O acesso será liberado automaticamente.'}
+      catch(error){status.textContent=error.name==='AbortError'?'Compra cancelada.':error.message}
+      finally{plans.querySelectorAll('button').forEach(b=>b.disabled=window.CompassoCloud?.state.proAccess===true)}
+    };
+    if(window.CompassoCloud?.state.proAccess)plans.querySelectorAll('button').forEach(b=>b.disabled=true);
+    }
+  }).catch(error=>{if(modal.isConnected)plans.textContent=error.message});
 }
 function planPanelMarkup(){
   const count=activeStudentCount(),access=window.CompassoCloud?.state,pro=access?.proAccess===true,locked=billingReadOnly();
   const title=access?.complimentaryPro?'Compasso Pro ativo · cortesia':pro?'Compasso Pro ativo':locked?'Plano Pro encerrado':'Plano gratuito';
   const detail=pro?`${count} ${count===1?'aluno ativo':'alunos ativos'} · sem limite de alunos`:locked?`${count} alunos ativos · arquive até ficar com 5 ou renove`:access?.accessState==='checking'?`Verificando acesso Pro · ${count} alunos ativos`:access?.accessState==='error'?`Não foi possível verificar o acesso Pro · ${count} alunos ativos`:`${count} de ${FREE_STUDENT_LIMIT} alunos ativos${count>FREE_STUDENT_LIMIT?' · cadastros existentes preservados':''}`;
-  return `<section class="plan-zone" data-plan-zone><div class="plan-heading"><i>♫</i><span><b>${title}</b><small>${detail}</small></span></div><div class="plan-actions">${!pro?'<button type="button" data-pro-options>Ver Pro</button>':''}${access?.user?'<button type="button" data-refresh-access>Verificar acesso</button>':''}</div></section>`;
+  const validity=pro&&access?.paidPlanExpiresAt?` · válido até ${formatDateBR(access.paidPlanExpiresAt.slice(0,10))}`:'';
+  return `<section class="plan-zone" data-plan-zone><div class="plan-heading"><i>♫</i><span><b>${title}</b><small>${detail}${validity}</small></span></div><div class="plan-actions">${!pro?'<button type="button" data-pro-options>Ver Pro</button>':''}${access?.user?'<button type="button" data-refresh-access>Verificar acesso</button>':''}${access?.proSource==='google_play'?'<a href="https://play.google.com/store/account/subscriptions" target="_blank" rel="noopener">Gerenciar assinatura</a>':''}</div></section>`;
 }
 function bindPlanPanel(){
   $('[data-refresh-access]')?.addEventListener('click',async event=>{const button=event.currentTarget;button.disabled=true;try{await window.CompassoCloud.refreshAccess()}finally{if(button.isConnected)button.disabled=false}});
@@ -843,6 +859,7 @@ function requestAppRefresh(){
 const openProfileSettingsBeforeCloud=openProfileSettings;
 openProfileSettings=function(){
   openProfileSettingsBeforeCloud();
+  window.appendAccountControls?.();
   const backup=$('.backup-zone');
   if(!backup)return;
   const updateTarget=$('.erase-zone')||$('.app-version');

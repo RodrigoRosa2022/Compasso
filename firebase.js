@@ -17,6 +17,30 @@ const LOCAL_OWNER_KEY = 'compasso-cloud-owner-v1';
 let state = { ready: false, user: null, hasCloudCopy: null, checkState: 'idle', syncEnabled: false, status: '', accessState: 'idle', complimentaryPro: false, proAccess: false, paidPlanStatus: '', proSource: '' };
 let authGeneration = 0, reconciliation = null, writeInProgress = null, syncTimer = null, erasing = false;
 let inspectedConflict = null;
+let accessUnsubscribe=null,accessExpiryTimer=null;
+async function api(action,body={}){
+  if(!auth.currentUser)throw new Error('Entre com Google para continuar.');
+  const token=await auth.currentUser.getIdToken(action==='deleteAccount');
+  const response=await fetch('https://southamerica-east1-compasso-17b69.cloudfunctions.net/billingApi',{
+    method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({action,...body})
+  });
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok){const error=new Error(result.error||'Não foi possível acessar o serviço. Tente novamente.');error.status=response.status;throw error;}
+  return result;
+}
+async function teacherTransaction(callback){
+  // Allows deploying the PWA before enabling the backend without interrupting existing teachers.
+  // Once the new rules are deployed, direct client writes are denied by Firestore itself.
+  if(!teacherTransaction.gateway){
+    try{await api('catalog');teacherTransaction.gateway=true;}
+    catch(error){if(error instanceof TypeError||error.status===404)return db.runTransaction(callback);throw error;}
+  }
+  const snapshot=await serverSnapshot(state.user.uid);
+  let proposed=null;
+  const result=await callback({get:async()=>snapshot,set:(_ref,value)=>{proposed=value}});
+  if(proposed)await api('commitTeacher',{backup:proposed.backup,expectedRevision:snapshot.exists?(snapshot.data().revision||1):0,erase:erasing});
+  return result;
+}
 
 function emit() { window.dispatchEvent(new CustomEvent('compasso-cloud-state', { detail: { ...state } })); }
 function teacherDoc(uid = state.user?.uid) { return uid ? db.collection('teachers').doc(uid) : null; }
@@ -82,7 +106,7 @@ async function resolveConflict(choices) {
   window.CompassoDataV2.validateCanonical(backup.data);
   const hash = selected.length ? await fingerprint(backup) : review.remoteHash;
   let revision = review.revision;
-  await db.runTransaction(async transaction => {
+  await teacherTransaction(async transaction => {
     const ref = teacherDoc(review.uid), snapshot = await transaction.get(ref), remote = snapshot.data()?.backup;
     if (!remote || await fingerprint(remote) !== review.remoteHash ||
         (Number.isInteger(snapshot.data().revision) ? snapshot.data().revision : 1) !== review.revision)
@@ -141,15 +165,18 @@ async function refreshAccess() {
   if (!uid) return;
   state.accessState = 'checking'; emit();
   try {
-    const snapshot = await db.collection('entitlements').doc(uid).get();
+    const snapshot = await db.collection('entitlements').doc(uid).get({source:'server'});
     if (state.user?.uid !== uid) return;
     const grant = snapshot.data();
     const complimentary = snapshot.exists && grant?.active === true && grant?.plan === 'pro' && grant?.source === 'complimentary';
-    const paid = snapshot.exists && grant?.active === true && grant?.plan === 'pro' && grant?.source === 'google_play';
+    const paid = snapshot.exists && grant?.active === true && grant?.plan === 'pro' && grant?.source === 'google_play' && Date.parse(grant.expiresAt)>Date.now();
+    clearTimeout(accessExpiryTimer);
+    if(paid)accessExpiryTimer=setTimeout(()=>{api('refresh').catch(()=>{}).finally(refreshAccess)},Math.min(86400000,Math.max(1000,Date.parse(grant.expiresAt)-Date.now()+1000)));
     state.complimentaryPro = !!complimentary;
     state.proAccess = !!(complimentary || paid);
     state.proSource = snapshot.exists ? grant?.source || '' : '';
     state.paidPlanStatus = grant?.source === 'google_play' ? grant?.status || (paid ? 'active' : 'expired') : '';
+    state.paidPlanExpiresAt = grant?.source === 'google_play' ? grant?.expiresAt || '' : '';
     state.accessState = 'ready';
   } catch (_) {
     if (state.user?.uid !== uid) return;
@@ -267,7 +294,7 @@ async function flushSync() {
   const job = (async () => {
     try {
       let nextRevision;
-      await db.runTransaction(async transaction => {
+      await teacherTransaction(async transaction => {
         const ref = teacherDoc(uid), snapshot = await transaction.get(ref);
         const remote = snapshot.data()?.backup;
         if (snapshot.exists && !remote?.data) throw new Error('invalid-cloud');
@@ -306,7 +333,7 @@ async function eraseCloudData(backup) {
     if (writeInProgress) await writeInProgress;
     const uid = state.user.uid, anchor = readAnchor(uid), hash = await fingerprint(backup);
     let revision;
-    await db.runTransaction(async transaction => {
+    await teacherTransaction(async transaction => {
       const ref = teacherDoc(uid), snapshot = await transaction.get(ref), remote = snapshot.data()?.backup;
       const remoteHash = remote ? await fingerprint(remote) : null;
       const currentRevision = snapshot.exists ? (Number.isInteger(snapshot.data().revision) ? snapshot.data().revision : 1) : 0;
@@ -340,6 +367,14 @@ window.CompassoCloud = {
   },
   async signOut() { await auth.signOut(); },
   refreshAccess,
+  api,
+  async deleteAccount(){
+    if(!auth.currentUser)throw new Error('Entre com Google primeiro.');
+    await auth.currentUser.reauthenticateWithPopup(provider);
+    erasing=true;clearTimeout(syncTimer);
+    try{if(writeInProgress)await writeInProgress;await api('deleteAccount');await auth.signOut();}
+    catch(error){erasing=false;throw error;}
+  },
   retry: startReconciliation,
   inspectConflict,
   resolveConflict,
@@ -349,11 +384,16 @@ window.CompassoCloud = {
 async function handleAuth(user) {
   if (user && state.user?.uid === user.uid) return reconciliation?.promise;
   authGeneration++;
+  accessUnsubscribe?.();accessUnsubscribe=null;
+  clearTimeout(accessExpiryTimer);
   clearTimeout(syncTimer);
   state = { ready: true, user: user || null, hasCloudCopy: null, checkState: user ? 'checking' : 'idle', syncEnabled: false, status: user ? 'Conferindo seus dados na nuvem…' : 'Entre para proteger seus dados na nuvem', accessState: user ? 'checking' : 'idle', complimentaryPro: false, proAccess: false, paidPlanStatus: '', proSource: '' };
   emit();
   if (!user) return;
   refreshAccess();
+  if(typeof db.collection('entitlements').doc(user.uid).onSnapshot==='function'){
+    accessUnsubscribe=db.collection('entitlements').doc(user.uid).onSnapshot(()=>refreshAccess(),()=>{});
+  }
   try { await startReconciliation(); } catch (_) { /* Status is displayed in the profile. */ }
 }
 auth.onAuthStateChanged(handleAuth);

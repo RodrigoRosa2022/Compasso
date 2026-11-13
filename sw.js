@@ -1,4 +1,4 @@
-const CACHE = 'compasso-static-v43';
+const CACHE = 'compasso-static-v44';
 const BASE = new URL('./', self.location.href);
 const FILES = [
   'index.html',
@@ -11,6 +11,10 @@ const FILES = [
   'data-v2.js',
   'journal.js',
   'firebase.js',
+  'billing.js',
+  'account.js',
+  'delete-account.html',
+  'delete-account.js',
   'app.js',
   'demo-data.json',
   'manifest.json',
