@@ -1,25 +1,22 @@
 (function(){
   window.openAccountDeletion=function(){
-    if(!window.CompassoCloud?.state.user){toast('Entre com Google para excluir sua conta.');return}
-    const begin=()=>{
-      modalShell('Excluir conta do Compasso',`<p>Seus alunos, aulas, acervo, pagamentos, perfil e cópias na nuvem serão apagados permanentemente.</p><p>A assinatura da Play não é cancelada por esta exclusão. <a href="https://play.google.com/store/account/subscriptions" target="_blank" rel="noopener">Gerenciar assinatura</a></p><label>Para confirmar, digite <b>excluir minha conta</b><input id="delete-account-confirm" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label><p role="status" data-delete-status></p>`);
-      const form=document.querySelector('.modal'),button=form.querySelector('.save');button.textContent='Excluir conta permanentemente';
-      form.onsubmit=async event=>{
-        event.preventDefault();const status=form.querySelector('[data-delete-status]');
-        if(form.querySelector('input').value!=='excluir minha conta'){status.textContent='Digite a frase indicada para confirmar.';return}
-        button.disabled=true;status.textContent='Confirme sua conta Google para concluir…';
-        const uid=window.CompassoCloud.state.user.uid;
-        try{await window.CompassoCloud.deleteAccount();if((localStorage.getItem('compasso-cloud-owner-v1')||localStorage.getItem('compasso-cloud-sync-user'))===uid){for(const key of Object.keys(localStorage))if(key.startsWith('compasso-'))localStorage.removeItem(key)}location.reload();}
-        catch(error){status.textContent=error.message||'Não foi possível excluir a conta agora.';button.disabled=false}
-      };
-    };
-    if(closeModal(false,begin))begin();
+    showActionDialog({
+      title:'Excluir sua conta?',
+      message:'A exclusão apaga permanentemente seu perfil, alunos, aulas, pagamentos e cópias na nuvem. Na próxima tela, você precisará entrar com Google e confirmar. Deseja continuar?',
+      actions:[
+        {label:'Cancelar',tone:'neutral'},
+        {label:'Continuar para exclusão',tone:'danger',run:()=>{
+          const navigate=()=>location.assign('delete-account.html');
+          if(closeModal(false,navigate))navigate();
+        }}
+      ]
+    });
   };
   window.appendAccountControls=function(){
     const modal=document.querySelector('.modal');if(!modal)return;
-    const section=document.createElement('section');section.className='account-legal';
-    section.innerHTML='<a href="privacy.html" target="_blank" rel="noopener">Privacidade</a> · <a href="delete-account.html" target="_blank" rel="noopener">Exclusão de conta</a>';
-    if(window.CompassoCloud?.state.user&&!demoMode){const button=document.createElement('button');button.type='button';button.className='cloud-link';button.textContent='Excluir minha conta';button.onclick=window.openAccountDeletion;section.append(button)}
-    modal.append(section);
+    const section=document.createElement('section');section.className='account-legal';section.setAttribute('aria-label','Privacidade e conta');
+    section.innerHTML='<a class="account-control" href="privacy.html" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/></svg><span>Privacidade</span></a>';
+    if(!demoMode){const button=document.createElement('button');button.type='button';button.className='account-control account-control-danger';button.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></svg><span>Excluir conta</span>';button.onclick=window.openAccountDeletion;section.append(button)}
+    const version=modal.querySelector('.app-version');if(version)version.before(section);else modal.append(section);
   };
 })();

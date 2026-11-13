@@ -1,8 +1,9 @@
-const CACHE = 'compasso-static-v44';
+const CACHE = 'compasso-static-v45';
 const BASE = new URL('./', self.location.href);
 const FILES = [
   'index.html',
   'style.css',
+  'account.css',
   'crop.css',
   'workflow.css',
   'finance.css',
